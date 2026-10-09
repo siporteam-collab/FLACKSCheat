@@ -1,0 +1,13 @@
+.vs/
+build/
+out/
+Debug/
+Release/
+x64/
+*.user
+*.suo
+*.pdb
+*.obj
+imgui/examples/
+imgui/docs/
+imgui/*.md
