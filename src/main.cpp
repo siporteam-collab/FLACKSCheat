@@ -416,4 +416,3 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
     return 0;
 }
-```[cite: 4]
