@@ -20,7 +20,7 @@
 // ==================== Конфигурация и структуры ====================
 struct ESPConfig {
     bool  enableESP    = true;
-    float color[3]     = { 0.0f, 0.9f, 1.0f }; // Неоновый голубой по умолчанию для ESP
+    float color[3]     = { 0.0f, 0.9f, 1.0f }; // Неоновый голубой
     float distance     = 500.0f;
     bool  showBox      = true;
     bool  showName     = true;
@@ -33,7 +33,7 @@ struct AimConfig {
     float fov          = 5.0f;
     float smooth       = 5.0f;
     int   targetBone   = 8;
-    int   activationKey= VK_MENU;
+    int   activationKey= VK_MENU; // VK_MENU — это клавиша ALT
 };
 
 struct PlayerData {
@@ -59,7 +59,7 @@ static bool               g_showMenu      = true;
 const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; 
 const uintptr_t OFFSET_ENTITY_LIST = 0x00C7438C; 
 
-// ==================== Неоновый стиль ImGui (Cyberpunk Theme) ====================
+// ==================== Неоновый стиль ImGui ====================
 void ApplyCustomStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding    = 10.0f;
@@ -75,10 +75,10 @@ void ApplyCustomStyle() {
     style.FrameBorderSize   = 1.0f;
 
     ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg]         = ImVec4(0.06f, 0.06f, 0.09f, 0.94f); // Глубокий темный фон
+    colors[ImGuiCol_WindowBg]         = ImVec4(0.06f, 0.06f, 0.09f, 0.94f);
     colors[ImGuiCol_ChildBg]          = ImVec4(0.09f, 0.09f, 0.13f, 0.60f);
     colors[ImGuiCol_PopupBg]          = ImVec4(0.08f, 0.08f, 0.12f, 0.96f);
-    colors[ImGuiCol_Border]           = ImVec4(0.00f, 0.80f, 1.00f, 0.45f); // Неоновая обводка
+    colors[ImGuiCol_Border]           = ImVec4(0.00f, 0.80f, 1.00f, 0.45f);
     colors[ImGuiCol_BorderShadow]     = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_FrameBg]          = ImVec4(0.11f, 0.11f, 0.16f, 1.00f);
     colors[ImGuiCol_FrameBgHovered]   = ImVec4(0.16f, 0.16f, 0.24f, 1.00f);
@@ -86,7 +86,7 @@ void ApplyCustomStyle() {
     colors[ImGuiCol_TitleBg]          = ImVec4(0.08f, 0.08f, 0.12f, 1.00f);
     colors[ImGuiCol_TitleBgActive]    = ImVec4(0.10f, 0.10f, 0.16f, 1.00f);
     colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.06f, 0.06f, 0.09f, 0.75f);
-    colors[ImGuiCol_CheckMark]        = ImVec4(0.00f, 0.90f, 1.00f, 1.00f); // Неоновый голубой чекбокс
+    colors[ImGuiCol_CheckMark]        = ImVec4(0.00f, 0.90f, 1.00f, 1.00f);
     colors[ImGuiCol_SliderGrab]       = ImVec4(0.00f, 0.80f, 1.00f, 1.00f);
     colors[ImGuiCol_SliderGrabActive] = ImVec4(0.40f, 0.95f, 1.00f, 1.00f);
     colors[ImGuiCol_Button]           = ImVec4(0.12f, 0.12f, 0.18f, 1.00f);
@@ -146,7 +146,6 @@ static void SetOverlayClickThrough(bool clickThrough) {
     else
         exStyle &= ~WS_EX_TRANSPARENT;  
 
-    SetWindowLongPtrW(g_hwndOverlay, GWLP_WNDPROC, (LONG_PTR)GetWindowLongPtrW(g_hwndOverlay, GWLP_WNDPROC)); 
     SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle);
     SetWindowPos(g_hwndOverlay, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
@@ -241,7 +240,7 @@ bool WorldToScreen(float* world, float* screen, float matrix[4][4], int sw, int 
     return true;
 }
 
-// ==================== Чтение реальной памяти игры (hw.dll) ====================
+// ==================== Чтение реальной памяти игры ====================
 std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBase, int sw, int sh) {
     std::vector<PlayerData> players;
     if (!hProcess || !hwBase) return players;
@@ -331,7 +330,7 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     g_hwndGame = FindWindowW(L"Valve001", nullptr);
     if (!g_hwndGame) {
-        MessageBoxW(nullptr, L"CS 1.6 не запущена.\nЗапусти игру и попробуй снова.", L"External Cheat", MB_ICONERROR);
+        MessageBoxW(nullptr, L"CS 1.6 is not running.\nStart the game and try again.", L"External Cheat", MB_ICONERROR);
         return 1;
     }
 
@@ -348,8 +347,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     int width  = rect.right  - rect.left;
     int height = rect.bottom - rect.top;
 
+    // ВАЖНО: Убрали WS_EX_LAYERED, чтобы DWM сделал окно прозрачным
     g_hwndOverlay = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW, 
         wc.lpszClassName, L"Overlay",
         WS_POPUP, rect.left, rect.top, width, height,
         nullptr, nullptr, hInstance, nullptr
@@ -367,7 +367,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     SetOverlayClickThrough(!g_showMenu);
 
     if (!CreateD3D9Device()) {
-        MessageBoxW(nullptr, L"Не удалось создать D3D9 устройство.", L"Error", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Failed to create D3D9 device.", L"Error", MB_ICONERROR);
         return 1;
     }
 
