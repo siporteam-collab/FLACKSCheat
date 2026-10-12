@@ -33,7 +33,7 @@ struct AimConfig {
     float fov          = 5.0f;
     float smooth       = 5.0f;
     int   targetBone   = 8;
-    int   activationKey= VK_ALT;
+    int   activationKey= VK_MENU;
 };
 
 struct PlayerData {
