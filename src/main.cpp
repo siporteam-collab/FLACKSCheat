@@ -142,13 +142,12 @@ static uintptr_t GetModuleBaseAddress(DWORD pid, const wchar_t* moduleName) {
 static void SetOverlayClickThrough(bool clickThrough) {
     LONG_PTR exStyle = GetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE);
     if (clickThrough)
-        exStyle |= WS_EX_TRANSPARENT;   
+        exStyle |= WS_EX_TRANSPARENT;   // Клики летят в игру
     else
-        exStyle &= ~WS_EX_TRANSPARENT;  
+        exStyle &= ~WS_EX_TRANSPARENT;  // Клики ловит меню
 
     SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle);
     
-    // Обновляем стиль окна, не забирая фокус у игры
     SetWindowPos(g_hwndOverlay, HWND_TOPMOST, 0, 0, 0, 0, 
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
@@ -350,9 +349,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     int width  = rect.right  - rect.left;
     int height = rect.bottom - rect.top;
 
-    // Добавлен WS_EX_NOACTIVATE, чтобы окно никогда не забирало фокус у игры
+    // Убрали WS_EX_NOACTIVATE. Теперь фокусом управляем вручную.
     g_hwndOverlay = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, 
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW, 
         wc.lpszClassName, L"Overlay",
         WS_POPUP, rect.left, rect.top, width, height,
         nullptr, nullptr, hInstance, nullptr
@@ -386,7 +385,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     ImFontConfig font_cfg;
     font_cfg.OversampleH = 2;
     font_cfg.OversampleV = 2;
-    // Используем стандартный системный шрифт Tahoma
     io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\tahoma.ttf", 16.0f, &font_cfg, io.Fonts->GetGlyphRangesCyrillic());
 
     ImGui_ImplWin32_Init(g_hwndOverlay);
@@ -414,13 +412,19 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         }
         if (done) break;
 
+        // === ЛОГИКА INSERT ===
         static bool insertPressed = false;
         if (GetAsyncKeyState(VK_INSERT) & 0x8000) {
             if (!insertPressed) {
                 g_showMenu = !g_showMenu;
                 SetOverlayClickThrough(!g_showMenu);
+                
                 if (!g_showMenu && g_hwndGame) {
+                    // Меню закрыто -> Отдаем фокус игре
                     SetForegroundWindow(g_hwndGame);
+                } else if (g_showMenu && g_hwndOverlay) {
+                    // Меню открыто -> Забираем фокус себе для кликов
+                    SetForegroundWindow(g_hwndOverlay);
                 }
                 insertPressed = true;
             }
