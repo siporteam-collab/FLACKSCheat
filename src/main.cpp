@@ -147,7 +147,10 @@ static void SetOverlayClickThrough(bool clickThrough) {
         exStyle &= ~WS_EX_TRANSPARENT;  
 
     SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle);
-    SetWindowPos(g_hwndOverlay, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    
+    // Обновляем стиль окна, не забирая фокус у игры
+    SetWindowPos(g_hwndOverlay, HWND_TOPMOST, 0, 0, 0, 0, 
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
 
 static bool CreateD3D9Device() {
@@ -347,9 +350,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     int width  = rect.right  - rect.left;
     int height = rect.bottom - rect.top;
 
-    // ВАЖНО: Убрали WS_EX_LAYERED, чтобы DWM сделал окно прозрачным
+    // Добавлен WS_EX_NOACTIVATE, чтобы окно никогда не забирало фокус у игры
     g_hwndOverlay = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW, 
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, 
         wc.lpszClassName, L"Overlay",
         WS_POPUP, rect.left, rect.top, width, height,
         nullptr, nullptr, hInstance, nullptr
@@ -365,6 +368,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     UpdateWindow(g_hwndOverlay);
 
     SetOverlayClickThrough(!g_showMenu);
+    SetForegroundWindow(g_hwndGame); // Возвращаем фокус игре при старте
 
     if (!CreateD3D9Device()) {
         MessageBoxW(nullptr, L"Failed to create D3D9 device.", L"Error", MB_ICONERROR);
@@ -377,6 +381,13 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     io.IniFilename = nullptr;
     
     ApplyCustomStyle();
+
+    // === ЗАГРУЗКА ШРИФТА С ПОДДЕРЖКОЙ РУССКОГО ЯЗЫКА ===
+    ImFontConfig font_cfg;
+    font_cfg.OversampleH = 2;
+    font_cfg.OversampleV = 2;
+    // Используем стандартный системный шрифт Tahoma
+    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\tahoma.ttf", 16.0f, &font_cfg, io.Fonts->GetGlyphRangesCyrillic());
 
     ImGui_ImplWin32_Init(g_hwndOverlay);
     ImGui_ImplDX9_Init(g_pDevice);
@@ -444,6 +455,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         ImGui_ImplDX9_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
+
+        // Показываем курсор мыши только когда открыто меню
+        ImGui::GetIO().MouseDrawCursor = g_showMenu;
 
         if (g_showMenu) {
             RenderImGuiMenu();
