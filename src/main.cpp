@@ -1,5 +1,4 @@
 #include <windows.h>
-#include <windowsx.h> // Нужно для GET_X_LPARAM (координаты мыши)
 #include <tlhelp32.h>
 #include <dwmapi.h>
 #include <vector>
@@ -56,8 +55,9 @@ static HWND               g_hwndGame      = nullptr;
 static HANDLE             g_hProcess      = nullptr;
 static bool               g_showMenu      = true;   
 
-// Храним координаты меню, чтобы окно знало, куда кликать
-static RECT               g_menuRect      = { 0, 0, 0, 0 };
+// Координаты меню для проверки мыши
+static ImVec2             g_menuPos       = ImVec2(0, 0);
+static ImVec2             g_menuSize      = ImVec2(0, 0);
 
 const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; 
 const uintptr_t OFFSET_ENTITY_LIST = 0x00C7438C; 
@@ -162,13 +162,9 @@ void RenderImGuiMenu() {
     ImGui::SetNextWindowSize(ImVec2(420, 340), ImGuiCond_FirstUseEver);
     ImGui::Begin("NEON EXTERNAL - CS 1.6", nullptr, ImGuiWindowFlags_NoCollapse);
 
-    // ЗАПОМИНАЕМ КООРДИНАТЫ МЕНЮ, ЧТОБЫ WNDPROC ЗНАЛ, КУДА КЛИКАТЬ
-    ImVec2 pos = ImGui::GetWindowPos();
-    ImVec2 size = ImGui::GetWindowSize();
-    g_menuRect.left   = (LONG)pos.x;
-    g_menuRect.top    = (LONG)pos.y;
-    g_menuRect.right  = (LONG)(pos.x + size.x);
-    g_menuRect.bottom = (LONG)(pos.y + size.y);
+    // Сохраняем координаты и размер меню для логики кликов
+    g_menuPos = ImGui::GetWindowPos();
+    g_menuSize = ImGui::GetWindowSize();
 
     ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "[ INSERT ] — Скрыть / Показать меню");
     ImGui::Spacing();
@@ -274,27 +270,10 @@ void DrawESPOverlay(ImDrawList* drawList, const std::vector<PlayerData>& players
     }
 }
 
-// ==================== WndProc (СИСТЕМА КЛИКОВ) ====================
+// ==================== WndProc ====================
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    // МАГИЯ: Проверяем, куда наведена мышка
-    if (msg == WM_NCHITTEST) {
-        if (!g_showMenu) {
-            return HTTRANSPARENT; // Если меню закрыто -> клики идут в игру
-        }
-        
-        // Если меню открыто, проверяем: мышка над меню или нет?
-        short x = GET_X_LPARAM(lParam);
-        short y = GET_Y_LPARAM(lParam);
-        
-        if (x >= g_menuRect.left && x <= g_menuRect.right &&
-            y >= g_menuRect.top && y <= g_menuRect.bottom) {
-            return HTCLIENT; // Над меню -> разрешаем клик по меню
-        }
-        return HTTRANSPARENT; // Мимо меню -> клики идут в игру
-    }
-
     if (g_showMenu && ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
         return true;
 
@@ -323,15 +302,17 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     int width  = rect.right  - rect.left;
     int height = rect.bottom - rect.top;
 
-    // Используем WS_EX_NOACTIVATE, чтобы окно НИКОГДА не забирало фокус у игры
+    // Создаем окно с LAYERED для корректной работы прозрачности
     g_hwndOverlay = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, 
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, 
         wc.lpszClassName, L"Overlay",
         WS_POPUP, rect.left, rect.top, width, height,
         nullptr, nullptr, hInstance, nullptr
     );
     if (!g_hwndOverlay) return 1;
 
+    // ВАЖНО: Делаем окно видимым, но прозрачным для DWM
+    SetLayeredWindowAttributes(g_hwndOverlay, 0, 255, LWA_ALPHA);
     {
         MARGINS margins = { -1, -1, -1, -1 };
         DwmExtendFrameIntoClientArea(g_hwndOverlay, &margins);
@@ -423,12 +404,37 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
             g_pDevice->EndScene();
         }
 
-        HRESULT hr = g_pDevice->Present(nullptr, nullptr, nullptr, nullptr);
-        if (hr == D3DERR_DEVICELOST && g_pDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET) {
-            ImGui_ImplDX9_InvalidateDeviceObjects();
-            g_pDevice->Reset(&g_d3dpp);
-            ImGui_ImplDX9_CreateDeviceObjects();
+        g_pDevice->Present(nullptr, nullptr, nullptr, nullptr);
+        
+        // =====================================================================
+        // ИДЕАЛЬНАЯ МАГИЯ КЛИКОВ (Динамическая проверка)
+        // =====================================================================
+        POINT pt;
+        GetCursorPos(&pt);
+        ScreenToClient(g_hwndOverlay, &pt); // Получаем координаты мыши внутри окна
+
+        bool overMenu = false;
+        if (g_showMenu) {
+            // Проверяем, находится ли мышка внутри прямоугольника меню
+            if (pt.x >= g_menuPos.x && pt.x <= g_menuPos.x + g_menuSize.x &&
+                pt.y >= g_menuPos.y && pt.y <= g_menuPos.y + g_menuSize.y) {
+                overMenu = true;
+            }
         }
+
+        LONG_PTR exStyle = GetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE);
+        if (overMenu) {
+            // Мышка над меню -> Убираем прозрачность для мыши (клики по меню)
+            if (exStyle & WS_EX_TRANSPARENT) {
+                SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
+            }
+        } else {
+            // Мышка вне меню ИЛИ меню закрыто -> Клики летят в игру
+            if (!(exStyle & WS_EX_TRANSPARENT)) {
+                SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+            }
+        }
+        // =====================================================================
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
