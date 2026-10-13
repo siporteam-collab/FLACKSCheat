@@ -32,8 +32,8 @@ struct AimConfig {
     bool  enableAim    = false;
     float fov          = 5.0f;
     float smooth       = 5.0f;
-    int   targetBone   = 8;
-    int   activationKey= VK_MENU; 
+    int   targetBone   = 8;     // 8 - голова, 3 - грудь (примерные оффсеты костей или высоты)
+    int   activationKey= VK_MENU; // ALT
 };
 
 struct PlayerData {
@@ -162,7 +162,6 @@ void RenderImGuiMenu() {
     ImGui::SetNextWindowSize(ImVec2(420, 340), ImGuiCond_FirstUseEver);
     ImGui::Begin("NEON EXTERNAL - CS 1.6", nullptr, ImGuiWindowFlags_NoCollapse);
 
-    // Сохраняем координаты и размер меню для логики кликов
     g_menuPos = ImGui::GetWindowPos();
     g_menuSize = ImGui::GetWindowSize();
 
@@ -226,6 +225,12 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
     if (!entityListBase) return players;
 
+    float centerX = sw / 2.0f;
+    float centerY = sh / 2.0f;
+    float closestDist = 9999.0f;
+    float targetX = 0, targetY = 0;
+    bool hasTarget = false;
+
     for (int i = 1; i <= 32; i++) {
         uintptr_t entityPtr = 0;
         ReadProcessMemory(hProcess, (LPCVOID)(entityListBase + (i * 4)), &entityPtr, sizeof(entityPtr), nullptr);
@@ -242,8 +247,34 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         if (WorldToScreen(p.worldPos, p.screenPos, viewMatrix, sw, sh)) {
             p.isValid = true;
             players.push_back(p);
+
+            // Логика Aimbot (поиск ближайшего к центру экрана)
+            if (g_aim.enableAim) {
+                float dist = std::hypot(p.screenPos[0] - centerX, p.screenPos[1] - centerY);
+                // Примерный расчет пиксельного FOV
+                float maxFovPixels = (sw / 90.0f) * g_aim.fov; 
+                if (dist < maxFovPixels && dist < closestDist) {
+                    closestDist = dist;
+                    targetX = p.screenPos[0];
+                    targetY = p.screenPos[1];
+                    hasTarget = true;
+                }
+            }
         }
     }
+
+    // Обработка движения мыши для Aimbot при удержании ALT
+    if (g_aim.enableAim && hasTarget && (GetAsyncKeyState(g_aim.activationKey) & 0x8000)) {
+        float x = targetX - centerX;
+        float y = targetY - centerY;
+
+        float smooth = (g_aim.smooth < 1.0f) ? 1.0f : g_aim.smooth;
+        float moveX = x / smooth;
+        float moveY = y / smooth;
+
+        mouse_event(MOUSEEVENTF_MOVE, (DWORD)moveX, (DWORD)moveY, 0, 0);
+    }
+
     return players;
 }
 
@@ -302,7 +333,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     int width  = rect.right  - rect.left;
     int height = rect.bottom - rect.top;
 
-    // Создаем окно с LAYERED для корректной работы прозрачности
     g_hwndOverlay = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, 
         wc.lpszClassName, L"Overlay",
@@ -311,7 +341,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     );
     if (!g_hwndOverlay) return 1;
 
-    // ВАЖНО: Делаем окно видимым, но прозрачным для DWM
     SetLayeredWindowAttributes(g_hwndOverlay, 0, 255, LWA_ALPHA);
     {
         MARGINS margins = { -1, -1, -1, -1 };
@@ -407,15 +436,14 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         g_pDevice->Present(nullptr, nullptr, nullptr, nullptr);
         
         // =====================================================================
-        // ИДЕАЛЬНАЯ МАГИЯ КЛИКОВ (Динамическая проверка)
+        // ИСПРАВЛЕННАЯ ЛОГИКА КЛИКОВ С ФЛАГОМ SWP_FRAMECHANGED
         // =====================================================================
         POINT pt;
         GetCursorPos(&pt);
-        ScreenToClient(g_hwndOverlay, &pt); // Получаем координаты мыши внутри окна
+        ScreenToClient(g_hwndOverlay, &pt);
 
         bool overMenu = false;
         if (g_showMenu) {
-            // Проверяем, находится ли мышка внутри прямоугольника меню
             if (pt.x >= g_menuPos.x && pt.x <= g_menuPos.x + g_menuSize.x &&
                 pt.y >= g_menuPos.y && pt.y <= g_menuPos.y + g_menuSize.y) {
                 overMenu = true;
@@ -424,14 +452,16 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         LONG_PTR exStyle = GetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE);
         if (overMenu) {
-            // Мышка над меню -> Убираем прозрачность для мыши (клики по меню)
             if (exStyle & WS_EX_TRANSPARENT) {
                 SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
+                // ВАЖНО: Принудительно обновляем стиль окна для мгновенного перехвата мыши
+                SetWindowPos(g_hwndOverlay, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
             }
         } else {
-            // Мышка вне меню ИЛИ меню закрыто -> Клики летят в игру
             if (!(exStyle & WS_EX_TRANSPARENT)) {
                 SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+                // ВАЖНО: Возвращаем прозрачность для кликов в игру
+                SetWindowPos(g_hwndOverlay, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
             }
         }
         // =====================================================================
