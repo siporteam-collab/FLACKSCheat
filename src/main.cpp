@@ -48,8 +48,8 @@ struct PlayerData {
 // ==================== Глобальные переменные ====================
 static ESPConfig          g_esp;
 static AimConfig          g_aim;
-static int                g_language = 0; // 0 - Русский, 1 - English
-static float              g_menuColor[3] = { 0.0f, 0.9f, 1.0f }; // Цвет меню
+static int                g_language = 0; 
+static float              g_menuColor[3] = { 0.0f, 0.9f, 1.0f }; 
 
 static LPDIRECT3D9        g_pD3D          = nullptr;
 static LPDIRECT3DDEVICE9  g_pDevice       = nullptr;
@@ -59,183 +59,166 @@ static HWND               g_hwndGame      = nullptr;
 static HANDLE             g_hProcess      = nullptr;
 static bool               g_showMenu      = true;   
 
-// Координаты меню для проверки мыши
 static ImVec2             g_menuPos       = ImVec2(0, 0);
 static ImVec2             g_menuSize      = ImVec2(0, 0);
 
-// ОФФСЕТЫ (Вставь сюда свои финальные значения из IDA/CE)
-const uintptr_t OFFSET_ENTITY_LIST = 0x0176E628; // Твой EntityList
-const uintptr_t OFFSET_HEALTH      = 0x1BC;      // Твой оффсет здоровья
-const uintptr_t OFFSET_VIEW_MATRIX = 0x11FDAF0;  // Заглушка, замени на реальный
+// ОФФСЕТЫ
+const uintptr_t OFFSET_ENTITY_LIST = 0x0176E628; 
+const uintptr_t OFFSET_HEALTH      = 0x1BC;      
+const uintptr_t OFFSET_VIEW_MATRIX = 0x11FDAF0;  
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
     return (g_language == 0) ? ru : en;
 }
 
-// ==================== Динамический стиль ImGui ====================
+// ==================== Стиль в духе скриншота ====================
 void ApplyCustomStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding    = 10.0f;
-    style.ChildRounding     = 6.0f;
-    style.FrameRounding     = 6.0f;
-    style.GrabRounding      = 6.0f;
-    style.PopupRounding     = 6.0f;
-    style.ScrollbarRounding = 6.0f;
-    style.WindowPadding     = ImVec2(14, 14);
-    style.FramePadding      = ImVec2(8, 6);
-    style.ItemSpacing       = ImVec2(10, 10);
-    style.WindowBorderSize  = 1.0f;
-    style.FrameBorderSize   = 1.0f;
+    // Компактные отступы, как на скрине
+    style.WindowPadding     = ImVec2(10, 10);
+    style.FramePadding      = ImVec2(6, 4);
+    style.ItemSpacing       = ImVec2(8, 8);
+    style.WindowRounding    = 4.0f;
+    style.FrameRounding     = 2.0f;
+    style.GrabRounding      = 2.0f;
 
     ImVec4* colors = style.Colors;
     ImVec4 mainColor = ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f);
     
-    colors[ImGuiCol_WindowBg]         = ImVec4(0.06f, 0.06f, 0.09f, 0.94f);
-    colors[ImGuiCol_ChildBg]          = ImVec4(0.09f, 0.09f, 0.13f, 0.60f);
-    colors[ImGuiCol_PopupBg]          = ImVec4(0.08f, 0.08f, 0.12f, 0.96f);
-    colors[ImGuiCol_Border]           = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.45f);
-    colors[ImGuiCol_BorderShadow]     = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_FrameBg]          = ImVec4(0.11f, 0.11f, 0.16f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered]   = ImVec4(0.16f, 0.16f, 0.24f, 1.00f);
-    colors[ImGuiCol_FrameBgActive]    = ImVec4(0.20f, 0.20f, 0.32f, 1.00f);
-    colors[ImGuiCol_TitleBg]          = ImVec4(0.08f, 0.08f, 0.12f, 1.00f);
-    colors[ImGuiCol_TitleBgActive]    = ImVec4(0.10f, 0.10f, 0.16f, 1.00f);
-    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.06f, 0.06f, 0.09f, 0.75f);
+    // Темный фон, как на скрине
+    colors[ImGuiCol_WindowBg]         = ImVec4(0.08f, 0.08f, 0.08f, 0.95f); 
+    colors[ImGuiCol_ChildBg]          = ImVec4(0.05f, 0.05f, 0.05f, 0.50f);
+    colors[ImGuiCol_Border]           = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.30f);
     
-    // Акценты меняются от g_menuColor
-    colors[ImGuiCol_CheckMark]        = mainColor;
+    // Квадратные чекбоксы (серый фон)
+    colors[ImGuiCol_FrameBg]          = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered]   = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_FrameBgActive]    = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
+    
+    colors[ImGuiCol_CheckMark]        = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // Белая галочка
     colors[ImGuiCol_SliderGrab]       = mainColor;
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(mainColor.x * 1.2f, mainColor.y * 1.2f, mainColor.z * 1.2f, 1.0f);
-    colors[ImGuiCol_Button]           = ImVec4(0.12f, 0.12f, 0.18f, 1.00f);
-    colors[ImGuiCol_ButtonHovered]    = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.85f);
-    colors[ImGuiCol_ButtonActive]     = mainColor;
-    colors[ImGuiCol_Header]           = ImVec4(0.12f, 0.12f, 0.18f, 1.00f);
-    colors[ImGuiCol_HeaderHovered]    = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.60f);
-    colors[ImGuiCol_HeaderActive]     = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.80f);
-    colors[ImGuiCol_Tab]              = ImVec4(0.08f, 0.08f, 0.12f, 1.00f);
-    colors[ImGuiCol_TabHovered]       = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.80f);
-    colors[ImGuiCol_TabActive]        = mainColor;
+    colors[ImGuiCol_SliderGrabActive] = mainColor;
     
-    colors[ImGuiCol_Text]             = ImVec4(0.90f, 0.90f, 0.95f, 1.00f);
-    colors[ImGuiCol_TextDisabled]     = ImVec4(0.40f, 0.40f, 0.50f, 1.00f);
+    // Плоские вкладки
+    colors[ImGuiCol_Tab]              = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_TabHovered]       = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_TabActive]        = mainColor; // Активная вкладка красится в цвет меню
+    
+    colors[ImGuiCol_Text]             = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
 }
 
-// ==================== Хелперы процесса ====================
-static DWORD GetProcessIdByName(const wchar_t* name) {
-    DWORD pid = 0;
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snap != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32W pe{ sizeof(pe) };
-        if (Process32FirstW(snap, &pe)) {
-            do {
-                if (_wcsicmp(pe.szExeFile, name) == 0) { pid = pe.th32ProcessID; break; }
-            } while (Process32NextW(snap, &pe));
-        }
-        CloseHandle(snap);
-    }
-    return pid;
-}
-
-static uintptr_t GetModuleBaseAddress(DWORD pid, const wchar_t* moduleName) {
-    uintptr_t baseAddress = 0;
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
-    if (snap != INVALID_HANDLE_VALUE) {
-        MODULEENTRY32W me{ sizeof(me) };
-        if (Module32FirstW(snap, &me)) {
-            do {
-                if (_wcsicmp(me.szModule, moduleName) == 0) { baseAddress = (uintptr_t)me.modBaseAddr; break; }
-            } while (Module32NextW(snap, &me));
-        }
-        CloseHandle(snap);
-    }
-    return baseAddress;
-}
-
-static bool CreateD3D9Device() {
-    g_pD3D = Direct3DCreate9(D3D_SDK_VERSION);
-    if (!g_pD3D) return false;
-    ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
-    g_d3dpp.Windowed = TRUE;
-    g_d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    g_d3dpp.BackBufferFormat = D3DFMT_A8R8G8B8;   
-    g_d3dpp.BackBufferWidth = 1; g_d3dpp.BackBufferHeight = 1;
-    g_d3dpp.EnableAutoDepthStencil = TRUE;
-    g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
-    g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
-
-    HRESULT hr = g_pD3D->CreateDevice(
-        D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, g_hwndOverlay,
-        D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
-        &g_d3dpp, &g_pDevice
-    );
-    if (FAILED(hr)) { g_pD3D->Release(); g_pD3D = nullptr; return false; }
-    return true;
-}
-
-// ==================== Меню ImGui ====================
+// ==================== Меню ImGui (Дизайн со скрина) ====================
 void RenderImGuiMenu() {
-    ImGui::SetNextWindowSize(ImVec2(420, 340), ImGuiCond_FirstUseEver);
-    ImGui::Begin(T("NEON EXTERNAL - CS 1.6", "NEON EXTERNAL - CS 1.6"), nullptr, ImGuiWindowFlags_NoCollapse);
+    ImGui::SetNextWindowSize(ImVec2(500, 320), ImGuiCond_FirstUseEver);
+    
+    // Убираем стандартный заголовок окна
+    ImGui::Begin("##Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
 
     g_menuPos = ImGui::GetWindowPos();
     g_menuSize = ImGui::GetWindowSize();
 
-    ImGui::TextColored(ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f), T("[ INSERT ] — Скрыть / Показать меню", "[ INSERT ] — Show / Hide menu"));
+    // --- Кастомный заголовок ---
+    ImGui::TextColored(ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f), "FLACKSCheat V1 [ CS 1.6 ]");
+    
+    ImGui::SameLine(ImGui::GetWindowWidth() - 120);
+    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "FPS: %.0f", ImGui::GetIO().Framerate);
+    
+    ImGui::SameLine(ImGui::GetWindowWidth() - 30);
+    if (ImGui::Button("X", ImVec2(20, 20))) {
+        g_showMenu = false; // Закрываем меню
+    }
+    
+    ImGui::Separator();
     ImGui::Spacing();
 
-    if (ImGui::BeginTabBar("CheatTabs")) {
+    // --- Вкладки ---
+    if (ImGui::BeginTabBar("CheatTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
         
-        // ================= ВКЛАДКА ESP =================
-        if (ImGui::BeginTabItem(T("  ESP  ", "  ESP  "))) {
+        // ================= ESP =================
+        if (ImGui::BeginTabItem("  ESP  ")) {
             ImGui::Spacing();
+            
+            // Разбиваем на 3 колонки как на скрине
+            ImGui::Columns(3, "esp_cols", false);
+            
+            // Колонка 1
+            ImGui::Checkbox(T("Боксы", "Box"), &g_esp.showBox);
+            ImGui::Checkbox(T("Линии", "Line"), &g_esp.showName); // Имена как линии
+            ImGui::NextColumn();
+            
+            // Колонка 2
+            ImGui::Checkbox(T("Никнейм", "Name"), &g_esp.showName);
+            ImGui::Checkbox(T("Здоровье", "Health"), &g_esp.showHealth);
+            ImGui::NextColumn();
+            
+            // Колонка 3
             ImGui::Checkbox(T("Включить ESP", "Enable ESP"), &g_esp.enableESP);
-            ImGui::Separator();
-            ImGui::Checkbox(T("Отображать боксы", "Show Boxes"), &g_esp.showBox);
-            ImGui::Checkbox(T("Отображать никнеймы", "Show Names"), &g_esp.showName);
-            ImGui::Checkbox(T("Отображать здоровье", "Show Health"), &g_esp.showHealth);
             ImGui::Spacing();
+            ImGui::TextDisabled(T("Дистанция", "Distance"));
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderFloat("##dist", &g_esp.distance, 50.0f, 2000.0f, "%.0f m");
+            
+            ImGui::Columns(1); // Сброс колонок
+            
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            
+            ImGui::Text(T("Настройки визуала:", "Visual Settings:"));
             ImGui::ColorEdit3(T("Цвет ESP", "ESP Color"), g_esp.color, ImGuiColorEditFlags_NoInputs);
-            ImGui::SliderFloat(T("Дистанция", "Distance"), &g_esp.distance, 50.0f, 2000.0f, "%.0f m");
-            ImGui::SliderFloat(T("Толщина линий", "Line Thickness"), &g_esp.thickness, 0.5f, 5.0f, "%.1f px");
+            ImGui::SliderFloat(T("Толщина", "Thickness"), &g_esp.thickness, 0.5f, 5.0f, "%.1f px");
+            
             ImGui::EndTabItem();
         }
 
-        // ================= ВКЛАДКА AIMBOT =================
-        if (ImGui::BeginTabItem(T("  AIMBOT  ", "  AIMBOT  "))) {
+        // ================= AIM =================
+        if (ImGui::BeginTabItem("  AIM  ")) {
             ImGui::Spacing();
+            
+            ImGui::Columns(2, "aim_cols", false);
+            
             ImGui::Checkbox(T("Включить Aimbot", "Enable Aimbot"), &g_aim.enableAim);
-            ImGui::Separator();
-            ImGui::SliderFloat(T("FOV (Угол обзора)", "FOV"), &g_aim.fov, 1.0f, 30.0f, "%.1f°");
-            ImGui::SliderFloat(T("Smooth (Плавность)", "Smooth"), &g_aim.smooth, 1.0f, 20.0f, "%.1f");
-            
-            const char* bonesRu[] = { "Голова", "Тело" };
-            const char* bonesEn[] = { "Head", "Body" };
-            int currentBone = (g_aim.targetBone == 8) ? 0 : 1;
-            
-            if (ImGui::Combo(T("Кость цели", "Target Bone"), &currentBone, g_language == 0 ? bonesRu : bonesEn, IM_ARRAYSIZE(bonesRu))) {
-                g_aim.targetBone = (currentBone == 0) ? 8 : 3;
-            }
             ImGui::Spacing();
-            ImGui::TextDisabled(T("Удержание клавиши: [ ALT ]", "Hold key: [ ALT ]"));
+            ImGui::TextDisabled(T("Плавность (Smooth)", "Smooth"));
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderFloat("##smooth", &g_aim.smooth, 1.0f, 20.0f, "%.1f");
+            ImGui::NextColumn();
+            
+            ImGui::TextDisabled(T("Угол обзора (FOV)", "FOV"));
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderFloat("##fov", &g_aim.fov, 1.0f, 30.0f, "%.1f°");
+            
+            ImGui::Spacing();
+            ImGui::TextDisabled(T("Клавиша: ALT", "Key: ALT"));
+            
+            ImGui::Columns(1);
             ImGui::EndTabItem();
         }
 
-        // ================= ВКЛАДКА НАСТРОЙКИ =================
-        if (ImGui::BeginTabItem(T("  Настройки  ", "  Settings  "))) {
+        // ================= SETTING =================
+        if (ImGui::BeginTabItem("  SETTING  ")) {
             ImGui::Spacing();
             
+            ImGui::Columns(2, "set_cols", false);
+            
+            ImGui::Text(T("Язык / Language", "Language"));
             const char* langs[] = { "Русский", "English" };
-            ImGui::Combo(T("Язык / Language", "Language"), &g_language, langs, IM_ARRAYSIZE(langs));
+            ImGui::SetNextItemWidth(-1);
+            ImGui::Combo("##lang", &g_language, langs, IM_ARRAYSIZE(langs));
             
-            ImGui::Separator();
+            ImGui::NextColumn();
             
-            if (ImGui::ColorEdit3(T("Цвет меню", "Menu Color"), g_menuColor, ImGuiColorEditFlags_NoInputs)) {
+            ImGui::Text(T("Цвет меню", "Menu Color"));
+            if (ImGui::ColorEdit3("##menucol", g_menuColor, ImGuiColorEditFlags_NoInputs)) {
                 ApplyCustomStyle(); 
             }
-
+            
+            ImGui::Columns(1);
+            
             ImGui::Spacing();
-            if (ImGui::Button(T("Сбросить настройки", "Reset Settings"), ImVec2(-1, 30))) {
+            ImGui::Spacing();
+            if (ImGui::Button(T("Сбросить настройки", "Reset Settings"), ImVec2(-1, 25))) {
                 g_language = 0;
                 g_menuColor[0] = 0.0f; g_menuColor[1] = 0.9f; g_menuColor[2] = 1.0f;
                 ApplyCustomStyle();
@@ -260,7 +243,7 @@ bool WorldToScreen(float* world, float* screen, float matrix[4][4], int sw, int 
     return true;
 }
 
-// ==================== Чтение памяти и Aimbot ====================
+// ==================== Чтение памяти ====================
 std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBase, int sw, int sh) {
     std::vector<PlayerData> players;
     if (!hProcess || !hwBase) return players;
@@ -287,7 +270,6 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_HEALTH), &p.health, sizeof(p.health), nullptr);
         if (p.health <= 0 || p.health > 100) continue;
 
-        // ВНИМАНИЕ: Оффсет координат 0x304 может отличаться в твоей сборке!
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr);
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x10), &p.name, 31, nullptr);
         p.name[31] = '\0';
@@ -313,7 +295,6 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         float x = targetX - centerX;
         float y = targetY - centerY;
         float smooth = (g_aim.smooth < 1.0f) ? 1.0f : g_aim.smooth;
-        
         int moveX = (int)(x / smooth);
         int moveY = (int)(y / smooth);
         mouse_event(MOUSEEVENTF_MOVE, moveX, moveY, 0, 0);
@@ -425,7 +406,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         }
         if (done) break;
 
-        // Хоткей Insert
         static bool insertPressed = false;
         if (GetAsyncKeyState(VK_INSERT) & 0x8000) {
             if (!insertPressed) {
@@ -438,7 +418,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         if (g_hwndGame && !IsWindow(g_hwndGame)) break;
 
-        // Синхронизация окна
         if (g_hwndGame) {
             static RECT lastRect = {};
             RECT cur = {};
@@ -483,7 +462,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         g_pDevice->Present(nullptr, nullptr, nullptr, nullptr);
         
-        // Идеальная логика кликов
+        // Клики
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(g_hwndOverlay, &pt);
