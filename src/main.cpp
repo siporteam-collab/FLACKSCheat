@@ -5,6 +5,7 @@
 #include <string>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <thread>
 #include <chrono>
 
@@ -17,7 +18,7 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "d3d9.lib")
 
-// ==================== Конфигурация и структуры ====================
+// ==================== Структуры и конфигурация ====================
 struct ESPConfig {
     bool  enableESP    = true;
     float color[3]     = { 0.0f, 0.9f, 1.0f }; 
@@ -32,8 +33,8 @@ struct AimConfig {
     bool  enableAim    = false;
     float fov          = 5.0f;
     float smooth       = 5.0f;
-    int   targetBone   = 8;     // 8 - голова, 3 - грудь (примерные оффсеты костей или высоты)
-    int   activationKey= VK_MENU; // ALT
+    int   targetBone   = 8;
+    int   activationKey= VK_MENU; 
 };
 
 struct PlayerData {
@@ -47,6 +48,9 @@ struct PlayerData {
 // ==================== Глобальные переменные ====================
 static ESPConfig          g_esp;
 static AimConfig          g_aim;
+static int                g_language = 0; // 0 - Русский, 1 - English
+static float              g_menuColor[3] = { 0.0f, 0.9f, 1.0f }; // Цвет меню
+
 static LPDIRECT3D9        g_pD3D          = nullptr;
 static LPDIRECT3DDEVICE9  g_pDevice       = nullptr;
 static D3DPRESENT_PARAMETERS g_d3dpp      = {};
@@ -59,10 +63,17 @@ static bool               g_showMenu      = true;
 static ImVec2             g_menuPos       = ImVec2(0, 0);
 static ImVec2             g_menuSize      = ImVec2(0, 0);
 
-const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; 
-const uintptr_t OFFSET_ENTITY_LIST = 0x00C7438C; 
+// ОФФСЕТЫ (Вставь сюда свои финальные значения из IDA/CE)
+const uintptr_t OFFSET_ENTITY_LIST = 0x0176E628; // Твой EntityList
+const uintptr_t OFFSET_HEALTH      = 0x1BC;      // Твой оффсет здоровья
+const uintptr_t OFFSET_VIEW_MATRIX = 0x11FDAF0;  // Заглушка, замени на реальный
 
-// ==================== Неоновый стиль ImGui ====================
+// ==================== Функция перевода ====================
+const char* T(const char* ru, const char* en) {
+    return (g_language == 0) ? ru : en;
+}
+
+// ==================== Динамический стиль ImGui ====================
 void ApplyCustomStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding    = 10.0f;
@@ -78,10 +89,12 @@ void ApplyCustomStyle() {
     style.FrameBorderSize   = 1.0f;
 
     ImVec4* colors = style.Colors;
+    ImVec4 mainColor = ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f);
+    
     colors[ImGuiCol_WindowBg]         = ImVec4(0.06f, 0.06f, 0.09f, 0.94f);
     colors[ImGuiCol_ChildBg]          = ImVec4(0.09f, 0.09f, 0.13f, 0.60f);
     colors[ImGuiCol_PopupBg]          = ImVec4(0.08f, 0.08f, 0.12f, 0.96f);
-    colors[ImGuiCol_Border]           = ImVec4(0.00f, 0.80f, 1.00f, 0.45f);
+    colors[ImGuiCol_Border]           = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.45f);
     colors[ImGuiCol_BorderShadow]     = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_FrameBg]          = ImVec4(0.11f, 0.11f, 0.16f, 1.00f);
     colors[ImGuiCol_FrameBgHovered]   = ImVec4(0.16f, 0.16f, 0.24f, 1.00f);
@@ -89,18 +102,21 @@ void ApplyCustomStyle() {
     colors[ImGuiCol_TitleBg]          = ImVec4(0.08f, 0.08f, 0.12f, 1.00f);
     colors[ImGuiCol_TitleBgActive]    = ImVec4(0.10f, 0.10f, 0.16f, 1.00f);
     colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.06f, 0.06f, 0.09f, 0.75f);
-    colors[ImGuiCol_CheckMark]        = ImVec4(0.00f, 0.90f, 1.00f, 1.00f);
-    colors[ImGuiCol_SliderGrab]       = ImVec4(0.00f, 0.80f, 1.00f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.40f, 0.95f, 1.00f, 1.00f);
+    
+    // Акценты меняются от g_menuColor
+    colors[ImGuiCol_CheckMark]        = mainColor;
+    colors[ImGuiCol_SliderGrab]       = mainColor;
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(mainColor.x * 1.2f, mainColor.y * 1.2f, mainColor.z * 1.2f, 1.0f);
     colors[ImGuiCol_Button]           = ImVec4(0.12f, 0.12f, 0.18f, 1.00f);
-    colors[ImGuiCol_ButtonHovered]    = ImVec4(0.00f, 0.60f, 0.80f, 0.85f);
-    colors[ImGuiCol_ButtonActive]     = ImVec4(0.00f, 0.85f, 1.00f, 1.00f);
+    colors[ImGuiCol_ButtonHovered]    = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.85f);
+    colors[ImGuiCol_ButtonActive]     = mainColor;
     colors[ImGuiCol_Header]           = ImVec4(0.12f, 0.12f, 0.18f, 1.00f);
-    colors[ImGuiCol_HeaderHovered]    = ImVec4(0.00f, 0.60f, 0.80f, 0.60f);
-    colors[ImGuiCol_HeaderActive]     = ImVec4(0.00f, 0.80f, 1.00f, 0.80f);
+    colors[ImGuiCol_HeaderHovered]    = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.60f);
+    colors[ImGuiCol_HeaderActive]     = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.80f);
     colors[ImGuiCol_Tab]              = ImVec4(0.08f, 0.08f, 0.12f, 1.00f);
-    colors[ImGuiCol_TabHovered]       = ImVec4(0.00f, 0.60f, 0.80f, 0.80f);
-    colors[ImGuiCol_TabActive]        = ImVec4(0.00f, 0.70f, 0.90f, 1.00f);
+    colors[ImGuiCol_TabHovered]       = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.80f);
+    colors[ImGuiCol_TabActive]        = mainColor;
+    
     colors[ImGuiCol_Text]             = ImVec4(0.90f, 0.90f, 0.95f, 1.00f);
     colors[ImGuiCol_TextDisabled]     = ImVec4(0.40f, 0.40f, 0.50f, 1.00f);
 }
@@ -157,52 +173,82 @@ static bool CreateD3D9Device() {
     return true;
 }
 
-// ==================== Неоновое меню ImGui ====================
+// ==================== Меню ImGui ====================
 void RenderImGuiMenu() {
     ImGui::SetNextWindowSize(ImVec2(420, 340), ImGuiCond_FirstUseEver);
-    ImGui::Begin("NEON EXTERNAL - CS 1.6", nullptr, ImGuiWindowFlags_NoCollapse);
+    ImGui::Begin(T("NEON EXTERNAL - CS 1.6", "NEON EXTERNAL - CS 1.6"), nullptr, ImGuiWindowFlags_NoCollapse);
 
     g_menuPos = ImGui::GetWindowPos();
     g_menuSize = ImGui::GetWindowSize();
 
-    ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "[ INSERT ] — Скрыть / Показать меню");
+    ImGui::TextColored(ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f), T("[ INSERT ] — Скрыть / Показать меню", "[ INSERT ] — Show / Hide menu"));
     ImGui::Spacing();
 
     if (ImGui::BeginTabBar("CheatTabs")) {
-        if (ImGui::BeginTabItem("  ESP  ")) {
+        
+        // ================= ВКЛАДКА ESP =================
+        if (ImGui::BeginTabItem(T("  ESP  ", "  ESP  "))) {
             ImGui::Spacing();
-            ImGui::Checkbox("Включить ESP", &g_esp.enableESP);
+            ImGui::Checkbox(T("Включить ESP", "Enable ESP"), &g_esp.enableESP);
             ImGui::Separator();
-            ImGui::Checkbox("Отображать боксы", &g_esp.showBox);
-            ImGui::Checkbox("Отображать никнеймы", &g_esp.showName);
-            ImGui::Checkbox("Отображать здоровье", &g_esp.showHealth);
+            ImGui::Checkbox(T("Отображать боксы", "Show Boxes"), &g_esp.showBox);
+            ImGui::Checkbox(T("Отображать никнеймы", "Show Names"), &g_esp.showName);
+            ImGui::Checkbox(T("Отображать здоровье", "Show Health"), &g_esp.showHealth);
             ImGui::Spacing();
-            ImGui::ColorEdit3("Цвет ESP", g_esp.color, ImGuiColorEditFlags_NoInputs);
-            ImGui::SliderFloat("Дистанция", &g_esp.distance, 50.0f, 2000.0f, "%.0f м");
-            ImGui::SliderFloat("Толщина линий", &g_esp.thickness, 0.5f, 5.0f, "%.1f px");
+            ImGui::ColorEdit3(T("Цвет ESP", "ESP Color"), g_esp.color, ImGuiColorEditFlags_NoInputs);
+            ImGui::SliderFloat(T("Дистанция", "Distance"), &g_esp.distance, 50.0f, 2000.0f, "%.0f m");
+            ImGui::SliderFloat(T("Толщина линий", "Line Thickness"), &g_esp.thickness, 0.5f, 5.0f, "%.1f px");
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("  AIMBOT  ")) {
+
+        // ================= ВКЛАДКА AIMBOT =================
+        if (ImGui::BeginTabItem(T("  AIMBOT  ", "  AIMBOT  "))) {
             ImGui::Spacing();
-            ImGui::Checkbox("Включить Aimbot", &g_aim.enableAim);
+            ImGui::Checkbox(T("Включить Aimbot", "Enable Aimbot"), &g_aim.enableAim);
             ImGui::Separator();
-            ImGui::SliderFloat("FOV (Угол обзора)", &g_aim.fov, 1.0f, 30.0f, "%.1f°");
-            ImGui::SliderFloat("Smooth (Плавность)", &g_aim.smooth, 1.0f, 20.0f, "%.1f");
-            const char* bones[] = { "Голова", "Тело" };
+            ImGui::SliderFloat(T("FOV (Угол обзора)", "FOV"), &g_aim.fov, 1.0f, 30.0f, "%.1f°");
+            ImGui::SliderFloat(T("Smooth (Плавность)", "Smooth"), &g_aim.smooth, 1.0f, 20.0f, "%.1f");
+            
+            const char* bonesRu[] = { "Голова", "Тело" };
+            const char* bonesEn[] = { "Head", "Body" };
             int currentBone = (g_aim.targetBone == 8) ? 0 : 1;
-            if (ImGui::Combo("Кость цели", &currentBone, bones, IM_ARRAYSIZE(bones))) {
+            
+            if (ImGui::Combo(T("Кость цели", "Target Bone"), &currentBone, g_language == 0 ? bonesRu : bonesEn, IM_ARRAYSIZE(bonesRu))) {
                 g_aim.targetBone = (currentBone == 0) ? 8 : 3;
             }
             ImGui::Spacing();
-            ImGui::TextDisabled("Удержание клавиши: [ ALT ]");
+            ImGui::TextDisabled(T("Удержание клавиши: [ ALT ]", "Hold key: [ ALT ]"));
             ImGui::EndTabItem();
         }
+
+        // ================= ВКЛАДКА НАСТРОЙКИ =================
+        if (ImGui::BeginTabItem(T("  Настройки  ", "  Settings  "))) {
+            ImGui::Spacing();
+            
+            const char* langs[] = { "Русский", "English" };
+            ImGui::Combo(T("Язык / Language", "Language"), &g_language, langs, IM_ARRAYSIZE(langs));
+            
+            ImGui::Separator();
+            
+            if (ImGui::ColorEdit3(T("Цвет меню", "Menu Color"), g_menuColor, ImGuiColorEditFlags_NoInputs)) {
+                ApplyCustomStyle(); 
+            }
+
+            ImGui::Spacing();
+            if (ImGui::Button(T("Сбросить настройки", "Reset Settings"), ImVec2(-1, 30))) {
+                g_language = 0;
+                g_menuColor[0] = 0.0f; g_menuColor[1] = 0.9f; g_menuColor[2] = 1.0f;
+                ApplyCustomStyle();
+            }
+            ImGui::EndTabItem();
+        }
+        
         ImGui::EndTabBar();
     }
     ImGui::End();
 }
 
-// ==================== Математика и Чтение памяти ====================
+// ==================== Математика ====================
 bool WorldToScreen(float* world, float* screen, float matrix[4][4], int sw, int sh) {
     float w = matrix[3][0]*world[0] + matrix[3][1]*world[1] + matrix[3][2]*world[2] + matrix[3][3];
     if (w < 0.01f) return false;
@@ -214,6 +260,7 @@ bool WorldToScreen(float* world, float* screen, float matrix[4][4], int sw, int 
     return true;
 }
 
+// ==================== Чтение памяти и Aimbot ====================
 std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBase, int sw, int sh) {
     std::vector<PlayerData> players;
     if (!hProcess || !hwBase) return players;
@@ -237,9 +284,10 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         if (!entityPtr) continue;
 
         PlayerData p;
-        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x94), &p.health, sizeof(p.health), nullptr);
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_HEALTH), &p.health, sizeof(p.health), nullptr);
         if (p.health <= 0 || p.health > 100) continue;
 
+        // ВНИМАНИЕ: Оффсет координат 0x304 может отличаться в твоей сборке!
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr);
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x10), &p.name, 31, nullptr);
         p.name[31] = '\0';
@@ -248,10 +296,8 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
             p.isValid = true;
             players.push_back(p);
 
-            // Логика Aimbot (поиск ближайшего к центру экрана)
             if (g_aim.enableAim) {
                 float dist = std::hypot(p.screenPos[0] - centerX, p.screenPos[1] - centerY);
-                // Примерный расчет пиксельного FOV
                 float maxFovPixels = (sw / 90.0f) * g_aim.fov; 
                 if (dist < maxFovPixels && dist < closestDist) {
                     closestDist = dist;
@@ -263,21 +309,20 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         }
     }
 
-    // Обработка движения мыши для Aimbot при удержании ALT
     if (g_aim.enableAim && hasTarget && (GetAsyncKeyState(g_aim.activationKey) & 0x8000)) {
         float x = targetX - centerX;
         float y = targetY - centerY;
-
         float smooth = (g_aim.smooth < 1.0f) ? 1.0f : g_aim.smooth;
-        float moveX = x / smooth;
-        float moveY = y / smooth;
-
-        mouse_event(MOUSEEVENTF_MOVE, (DWORD)moveX, (DWORD)moveY, 0, 0);
+        
+        int moveX = (int)(x / smooth);
+        int moveY = (int)(y / smooth);
+        mouse_event(MOUSEEVENTF_MOVE, moveX, moveY, 0, 0);
     }
 
     return players;
 }
 
+// ==================== Отрисовка ESP ====================
 void DrawESPOverlay(ImDrawList* drawList, const std::vector<PlayerData>& players) {
     if (!g_esp.enableESP || !drawList) return;
     ImU32 col = IM_COL32((int)(g_esp.color[0]*255), (int)(g_esp.color[1]*255), (int)(g_esp.color[2]*255), 255);
@@ -356,6 +401,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
+    
     ApplyCustomStyle();
     io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\tahoma.ttf", 16.0f, nullptr, io.Fonts->GetGlyphRangesCyrillic());
 
@@ -379,6 +425,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         }
         if (done) break;
 
+        // Хоткей Insert
         static bool insertPressed = false;
         if (GetAsyncKeyState(VK_INSERT) & 0x8000) {
             if (!insertPressed) {
@@ -391,6 +438,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         if (g_hwndGame && !IsWindow(g_hwndGame)) break;
 
+        // Синхронизация окна
         if (g_hwndGame) {
             static RECT lastRect = {};
             RECT cur = {};
@@ -435,9 +483,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         g_pDevice->Present(nullptr, nullptr, nullptr, nullptr);
         
-        // =====================================================================
-        // ИСПРАВЛЕННАЯ ЛОГИКА КЛИКОВ С ФЛАГОМ SWP_FRAMECHANGED
-        // =====================================================================
+        // Идеальная логика кликов
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(g_hwndOverlay, &pt);
@@ -454,17 +500,14 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         if (overMenu) {
             if (exStyle & WS_EX_TRANSPARENT) {
                 SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
-                // ВАЖНО: Принудительно обновляем стиль окна для мгновенного перехвата мыши
                 SetWindowPos(g_hwndOverlay, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
             }
         } else {
             if (!(exStyle & WS_EX_TRANSPARENT)) {
                 SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
-                // ВАЖНО: Возвращаем прозрачность для кликов в игру
                 SetWindowPos(g_hwndOverlay, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
             }
         }
-        // =====================================================================
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
