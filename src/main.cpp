@@ -63,7 +63,7 @@ static ImVec2             g_menuPos       = ImVec2(0, 0);
 static ImVec2             g_menuSize      = ImVec2(0, 0);
 
 // ОФФСЕТЫ
-const uintptr_t OFFSET_ENTITY_LIST = 0x0176E628; 
+const uintptr_t OFFSET_ENTITY_LIST = 0x00A6E628; 
 const uintptr_t OFFSET_HEALTH      = 0x1BC;      
 const uintptr_t OFFSET_VIEW_MATRIX = 0x11FDAF0;  
 
