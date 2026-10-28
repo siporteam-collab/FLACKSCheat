@@ -34,7 +34,7 @@ struct AimConfig {
     float fov          = 5.0f;
     float smooth       = 5.0f;
     int   targetBone   = 8;
-    int   activationKey= VK_MENU; 
+    int   activationKey= 'X'; // <--- ЗАМЕНЕНО НА КЛАВИШУ X
 };
 
 struct PlayerData {
@@ -48,7 +48,7 @@ struct PlayerData {
 // ==================== Глобальные переменные ====================
 static ESPConfig          g_esp;
 static AimConfig          g_aim;
-static int                g_language = 0; 
+static int                g_language = 0; // 0 - Русский, 1 - English
 static float              g_menuColor[3] = { 0.0f, 0.9f, 1.0f }; 
 
 static LPDIRECT3D9        g_pD3D          = nullptr;
@@ -62,17 +62,18 @@ static bool               g_showMenu      = true;
 static ImVec2             g_menuPos       = ImVec2(0, 0);
 static ImVec2             g_menuSize      = ImVec2(0, 0);
 
-// ОФФСЕТЫ
+// ОФФСЕТЫ (Найдены через IDA Pro)
 const uintptr_t OFFSET_ENTITY_LIST = 0x00A6E628; 
+const uintptr_t OFFSET_LOCAL_PLAYER = 0x0018D504; 
 const uintptr_t OFFSET_HEALTH      = 0x1BC;      
-const uintptr_t OFFSET_VIEW_MATRIX = 0x11FDAF0;  
+const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; // Если боксы будут не на месте, нужно заменить!
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
     return (g_language == 0) ? ru : en;
 }
 
-// ==================== Стиль в духе скриншота ====================
+// ==================== Стиль (Дизайн со скрина) ====================
 void ApplyCustomStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowPadding     = ImVec2(10, 10);
@@ -88,19 +89,15 @@ void ApplyCustomStyle() {
     colors[ImGuiCol_WindowBg]         = ImVec4(0.08f, 0.08f, 0.08f, 0.95f); 
     colors[ImGuiCol_ChildBg]          = ImVec4(0.05f, 0.05f, 0.05f, 0.50f);
     colors[ImGuiCol_Border]           = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.30f);
-    
     colors[ImGuiCol_FrameBg]          = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
     colors[ImGuiCol_FrameBgHovered]   = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
     colors[ImGuiCol_FrameBgActive]    = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
-    
     colors[ImGuiCol_CheckMark]        = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); 
     colors[ImGuiCol_SliderGrab]       = mainColor;
     colors[ImGuiCol_SliderGrabActive] = mainColor;
-    
     colors[ImGuiCol_Tab]              = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
     colors[ImGuiCol_TabHovered]       = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
     colors[ImGuiCol_TabActive]        = mainColor; 
-    
     colors[ImGuiCol_Text]             = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
 }
 
@@ -165,6 +162,7 @@ void RenderImGuiMenu() {
     g_menuPos = ImGui::GetWindowPos();
     g_menuSize = ImGui::GetWindowSize();
 
+    // --- Кастомный заголовок ---
     ImGui::TextColored(ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f), "FLACKSCheat V1 [ CS 1.6 ]");
     
     ImGui::SameLine(ImGui::GetWindowWidth() - 120);
@@ -181,7 +179,7 @@ void RenderImGuiMenu() {
     if (ImGui::BeginTabBar("CheatTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
         
         // ================= ESP =================
-        if (ImGui::BeginTabItem("  ESP  ")) {
+        if (ImGui::BeginTabItem(T("  ESP  ", "  ESP  "))) {
             ImGui::Spacing();
             ImGui::Columns(3, "esp_cols", false);
             
@@ -200,7 +198,6 @@ void RenderImGuiMenu() {
             ImGui::SliderFloat("##dist", &g_esp.distance, 50.0f, 2000.0f, "%.0f m");
             
             ImGui::Columns(1); 
-            
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
@@ -213,7 +210,7 @@ void RenderImGuiMenu() {
         }
 
         // ================= AIM =================
-        if (ImGui::BeginTabItem("  AIM  ")) {
+        if (ImGui::BeginTabItem(T("  AIM  ", "  AIM  "))) {
             ImGui::Spacing();
             ImGui::Columns(2, "aim_cols", false);
             
@@ -229,14 +226,14 @@ void RenderImGuiMenu() {
             ImGui::SliderFloat("##fov", &g_aim.fov, 1.0f, 30.0f, "%.1f°");
             
             ImGui::Spacing();
-            ImGui::TextDisabled(T("Клавиша: ALT", "Key: ALT"));
-            
+            // Текст обновлен на X
+            ImGui::TextDisabled(T("Клавиша: X", "Key: X"));
             ImGui::Columns(1);
             ImGui::EndTabItem();
         }
 
         // ================= SETTING =================
-        if (ImGui::BeginTabItem("  SETTING  ")) {
+        if (ImGui::BeginTabItem(T("  SETTING  ", "  SETTING  "))) {
             ImGui::Spacing();
             ImGui::Columns(2, "set_cols", false);
             
@@ -244,16 +241,13 @@ void RenderImGuiMenu() {
             const char* langs[] = { "Русский", "English" };
             ImGui::SetNextItemWidth(-1);
             ImGui::Combo("##lang", &g_language, langs, IM_ARRAYSIZE(langs));
-            
             ImGui::NextColumn();
             
             ImGui::Text(T("Цвет меню", "Menu Color"));
             if (ImGui::ColorEdit3("##menucol", g_menuColor, ImGuiColorEditFlags_NoInputs)) {
                 ApplyCustomStyle(); 
             }
-            
             ImGui::Columns(1);
-            
             ImGui::Spacing();
             ImGui::Spacing();
             if (ImGui::Button(T("Сбросить настройки", "Reset Settings"), ImVec2(-1, 25))) {
@@ -280,7 +274,7 @@ bool WorldToScreen(float* world, float* screen, float matrix[4][4], int sw, int 
     return true;
 }
 
-// ==================== Чтение памяти ====================
+// ==================== Чтение памяти и Aimbot ====================
 std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBase, int sw, int sh) {
     std::vector<PlayerData> players;
     if (!hProcess || !hwBase) return players;
@@ -292,6 +286,9 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
     if (!entityListBase) return players;
 
+    uintptr_t localPlayerPtr = 0;
+    ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_LOCAL_PLAYER), &localPlayerPtr, sizeof(localPlayerPtr), nullptr);
+
     float centerX = sw / 2.0f;
     float centerY = sh / 2.0f;
     float closestDist = 9999.0f;
@@ -301,10 +298,13 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     for (int i = 1; i <= 32; i++) {
         uintptr_t entityPtr = 0;
         ReadProcessMemory(hProcess, (LPCVOID)(entityListBase + (i * 4)), &entityPtr, sizeof(entityPtr), nullptr);
+        
         if (!entityPtr) continue;
+        if (entityPtr == localPlayerPtr) continue; // Пропускаем себя
 
         PlayerData p;
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_HEALTH), &p.health, sizeof(p.health), nullptr);
+        
         if (p.health <= 0 || p.health > 100) continue;
 
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr);
@@ -328,6 +328,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         }
     }
 
+    // Проверка нажатия клавиши X
     if (g_aim.enableAim && hasTarget && (GetAsyncKeyState(g_aim.activationKey) & 0x8000)) {
         float x = targetX - centerX;
         float y = targetY - centerY;
@@ -499,6 +500,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         g_pDevice->Present(nullptr, nullptr, nullptr, nullptr);
         
+        // Логика кликов
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(g_hwndOverlay, &pt);
