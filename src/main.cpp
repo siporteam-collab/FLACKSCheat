@@ -8,6 +8,7 @@
 #include <cstring>
 #include <thread>
 #include <chrono>
+#include <cstdint>
 
 #include <d3d9.h>
 
@@ -34,7 +35,7 @@ struct AimConfig {
     float fov          = 5.0f;
     float smooth       = 5.0f;
     int   targetBone   = 8;
-    int   activationKey= 'X'; // <--- ЗАМЕНЕНО НА КЛАВИШУ X
+    int   activationKey= 'X'; // Клавиша X
 };
 
 struct PlayerData {
@@ -48,7 +49,7 @@ struct PlayerData {
 // ==================== Глобальные переменные ====================
 static ESPConfig          g_esp;
 static AimConfig          g_aim;
-static int                g_language = 0; // 0 - Русский, 1 - English
+static int                g_language = 0; 
 static float              g_menuColor[3] = { 0.0f, 0.9f, 1.0f }; 
 
 static LPDIRECT3D9        g_pD3D          = nullptr;
@@ -62,18 +63,25 @@ static bool               g_showMenu      = true;
 static ImVec2             g_menuPos       = ImVec2(0, 0);
 static ImVec2             g_menuSize      = ImVec2(0, 0);
 
-// ОФФСЕТЫ (Найдены через IDA Pro)
+// Переменные для отладки (вкладка TEST)
+static uintptr_t g_debug_entityList = 0;
+static uintptr_t g_debug_localPlayer = 0;
+static uintptr_t g_debug_firstEntity = 0;
+static int       g_debug_firstHealth = -1;
+static bool      g_debug_viewMatrixValid = false;
+
+// ОФФСЕТЫ
 const uintptr_t OFFSET_ENTITY_LIST = 0x00A6E628; 
 const uintptr_t OFFSET_LOCAL_PLAYER = 0x0018D504; 
 const uintptr_t OFFSET_HEALTH      = 0x1BC;      
-const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; // Если боксы будут не на месте, нужно заменить!
+const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; 
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
     return (g_language == 0) ? ru : en;
 }
 
-// ==================== Стиль (Дизайн со скрина) ====================
+// ==================== Стиль ====================
 void ApplyCustomStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowPadding     = ImVec2(10, 10);
@@ -155,8 +163,7 @@ static bool CreateD3D9Device() {
 
 // ==================== Меню ImGui ====================
 void RenderImGuiMenu() {
-    ImGui::SetNextWindowSize(ImVec2(500, 320), ImGuiCond_FirstUseEver);
-    
+    ImGui::SetNextWindowSize(ImVec2(520, 340), ImGuiCond_FirstUseEver);
     ImGui::Begin("##Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
 
     g_menuPos = ImGui::GetWindowPos();
@@ -164,14 +171,10 @@ void RenderImGuiMenu() {
 
     // --- Кастомный заголовок ---
     ImGui::TextColored(ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f), "FLACKSCheat V1 [ CS 1.6 ]");
-    
     ImGui::SameLine(ImGui::GetWindowWidth() - 120);
     ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "FPS: %.0f", ImGui::GetIO().Framerate);
-    
     ImGui::SameLine(ImGui::GetWindowWidth() - 30);
-    if (ImGui::Button("X", ImVec2(20, 20))) {
-        g_showMenu = false; 
-    }
+    if (ImGui::Button("X", ImVec2(20, 20))) g_showMenu = false; 
     
     ImGui::Separator();
     ImGui::Spacing();
@@ -205,7 +208,6 @@ void RenderImGuiMenu() {
             ImGui::Text(T("Настройки визуала:", "Visual Settings:"));
             ImGui::ColorEdit3(T("Цвет ESP", "ESP Color"), g_esp.color, ImGuiColorEditFlags_NoInputs);
             ImGui::SliderFloat(T("Толщина", "Thickness"), &g_esp.thickness, 0.5f, 5.0f, "%.1f px");
-            
             ImGui::EndTabItem();
         }
 
@@ -224,11 +226,57 @@ void RenderImGuiMenu() {
             ImGui::TextDisabled(T("Угол обзора (FOV)", "FOV"));
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderFloat("##fov", &g_aim.fov, 1.0f, 30.0f, "%.1f°");
-            
             ImGui::Spacing();
-            // Текст обновлен на X
             ImGui::TextDisabled(T("Клавиша: X", "Key: X"));
             ImGui::Columns(1);
+            ImGui::EndTabItem();
+        }
+
+        // ================= TEST (ОТЛАДКА) =================
+        if (ImGui::BeginTabItem(T("  TEST  ", "  TEST  "))) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), T("Отладка оффсетов памяти:", "Memory Offset Debug:"));
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // EntityList
+            if (g_debug_entityList > 0) {
+                ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EntityList Base: 0x%X", g_debug_entityList);
+            } else {
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EntityList Base: 0x%X", g_debug_entityList);
+            }
+
+            // LocalPlayer
+            if (g_debug_localPlayer > 0) {
+                ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
+            } else {
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
+            }
+
+            // ViewMatrix
+            if (g_debug_viewMatrixValid) {
+                ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] ViewMatrix");
+            } else {
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] ViewMatrix (Zeros)");
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Первый найденный игрок
+            ImGui::Text(T("Первый найденный игрок (для теста):", "First entity found (test):"));
+            if (g_debug_firstEntity > 0) {
+                ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1), "Address: 0x%X", g_debug_firstEntity);
+                if (g_debug_firstHealth > 0 && g_debug_firstHealth <= 100) {
+                    ImGui::TextColored(ImVec4(0, 1, 0, 1), "Health: %d [OK]", g_debug_firstHealth);
+                } else {
+                    ImGui::TextColored(ImVec4(1, 0, 0, 1), "Health: %d [FAIL]", g_debug_firstHealth);
+                }
+            } else {
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), T("Игроки не найдены", "No entities found"));
+            }
+
             ImGui::EndTabItem();
         }
 
@@ -281,19 +329,25 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
 
     float viewMatrix[4][4];
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
+    // Проверка ViewMatrix (если первые два элемента не нули, значит матрица прочиталась)
+    g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f && viewMatrix[1][1] != 0.0f);
 
     uintptr_t entityListBase = 0;
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
+    g_debug_entityList = entityListBase;
+    
     if (!entityListBase) return players;
 
     uintptr_t localPlayerPtr = 0;
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_LOCAL_PLAYER), &localPlayerPtr, sizeof(localPlayerPtr), nullptr);
+    g_debug_localPlayer = localPlayerPtr;
 
     float centerX = sw / 2.0f;
     float centerY = sh / 2.0f;
     float closestDist = 9999.0f;
     float targetX = 0, targetY = 0;
     bool hasTarget = false;
+    bool foundFirstDebug = false;
 
     for (int i = 1; i <= 32; i++) {
         uintptr_t entityPtr = 0;
@@ -305,6 +359,13 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         PlayerData p;
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_HEALTH), &p.health, sizeof(p.health), nullptr);
         
+        // Для отладки сохраняем первого найденного, даже если он мертв
+        if (!foundFirstDebug) {
+            g_debug_firstEntity = entityPtr;
+            g_debug_firstHealth = p.health;
+            foundFirstDebug = true;
+        }
+
         if (p.health <= 0 || p.health > 100) continue;
 
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr);
@@ -328,7 +389,6 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         }
     }
 
-    // Проверка нажатия клавиши X
     if (g_aim.enableAim && hasTarget && (GetAsyncKeyState(g_aim.activationKey) & 0x8000)) {
         float x = targetX - centerX;
         float y = targetY - centerY;
@@ -500,7 +560,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         g_pDevice->Present(nullptr, nullptr, nullptr, nullptr);
         
-        // Логика кликов
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(g_hwndOverlay, &pt);
