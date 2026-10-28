@@ -35,7 +35,7 @@ struct AimConfig {
     float fov          = 5.0f;
     float smooth       = 5.0f;
     int   targetBone   = 8;
-    int   activationKey= 'X'; // Клавиша X
+    int   activationKey= 'X'; 
 };
 
 struct PlayerData {
@@ -66,11 +66,12 @@ static ImVec2             g_menuSize      = ImVec2(0, 0);
 // Переменные для отладки (вкладка TEST)
 static uintptr_t g_debug_entityList = 0;
 static uintptr_t g_debug_localPlayer = 0;
-static uintptr_t g_debug_firstEntity = 0;
-static int       g_debug_firstHealth = -1;
 static bool      g_debug_viewMatrixValid = false;
 
-// ОФФСЕТЫ
+// Список найденных оффсетов здоровья (для Bruteforce)
+static std::vector<uintptr_t> g_healthOffsets;
+
+// ОФФСЕТЫ (Из IDA Pro)
 const uintptr_t OFFSET_ENTITY_LIST = 0x00A6E628; 
 const uintptr_t OFFSET_LOCAL_PLAYER = 0x0018D504; 
 const uintptr_t OFFSET_HEALTH      = 0x1BC;      
@@ -161,15 +162,31 @@ static bool CreateD3D9Device() {
     return true;
 }
 
+// ==================== Функция Bruteforce (Перебор оффсетов) ====================
+void ScanForHealthOffsets(HANDLE hProcess, uintptr_t localPlayer) {
+    g_healthOffsets.clear();
+    if (!hProcess || !localPlayer) return;
+
+    int healthVal = 0;
+    // Перебираем от 0x00 до 0x1000 (4096 байт), с шагом 4 (так как int занимает 4 байта)
+    for (uintptr_t offset = 0; offset < 0x1000; offset += 4) {
+        if (ReadProcessMemory(hProcess, (LPCVOID)(localPlayer + offset), &healthVal, sizeof(healthVal), nullptr)) {
+            // Если значение от 0 до 100 — это кандидат на здоровье
+            if (healthVal >= 0 && healthVal <= 100) {
+                g_healthOffsets.push_back(offset);
+            }
+        }
+    }
+}
+
 // ==================== Меню ImGui ====================
 void RenderImGuiMenu() {
-    ImGui::SetNextWindowSize(ImVec2(520, 340), ImGuiCond_FirstUseEver);
-    ImGui::Begin("##Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
+    ImGui::SetNextWindowSize(ImVec2(520, 450), ImGuiCond_FirstUseEver); // Сделали окно повыше для списка
+    ImGui::Begin("##Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 
     g_menuPos = ImGui::GetWindowPos();
     g_menuSize = ImGui::GetWindowSize();
 
-    // --- Кастомный заголовок ---
     ImGui::TextColored(ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f), "FLACKSCheat V1 [ CS 1.6 ]");
     ImGui::SameLine(ImGui::GetWindowWidth() - 120);
     ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "FPS: %.0f", ImGui::GetIO().Framerate);
@@ -185,26 +202,19 @@ void RenderImGuiMenu() {
         if (ImGui::BeginTabItem(T("  ESP  ", "  ESP  "))) {
             ImGui::Spacing();
             ImGui::Columns(3, "esp_cols", false);
-            
             ImGui::Checkbox(T("Боксы", "Box"), &g_esp.showBox);
             ImGui::Checkbox(T("Линии", "Line"), &g_esp.showName); 
             ImGui::NextColumn();
-            
             ImGui::Checkbox(T("Никнейм", "Name"), &g_esp.showName);
             ImGui::Checkbox(T("Здоровье", "Health"), &g_esp.showHealth);
             ImGui::NextColumn();
-            
             ImGui::Checkbox(T("Включить ESP", "Enable ESP"), &g_esp.enableESP);
             ImGui::Spacing();
             ImGui::TextDisabled(T("Дистанция", "Distance"));
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderFloat("##dist", &g_esp.distance, 50.0f, 2000.0f, "%.0f m");
-            
             ImGui::Columns(1); 
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-            
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
             ImGui::Text(T("Настройки визуала:", "Visual Settings:"));
             ImGui::ColorEdit3(T("Цвет ESP", "ESP Color"), g_esp.color, ImGuiColorEditFlags_NoInputs);
             ImGui::SliderFloat(T("Толщина", "Thickness"), &g_esp.thickness, 0.5f, 5.0f, "%.1f px");
@@ -215,14 +225,12 @@ void RenderImGuiMenu() {
         if (ImGui::BeginTabItem(T("  AIM  ", "  AIM  "))) {
             ImGui::Spacing();
             ImGui::Columns(2, "aim_cols", false);
-            
             ImGui::Checkbox(T("Включить Aimbot", "Enable Aimbot"), &g_aim.enableAim);
             ImGui::Spacing();
             ImGui::TextDisabled(T("Плавность (Smooth)", "Smooth"));
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderFloat("##smooth", &g_aim.smooth, 1.0f, 20.0f, "%.1f");
             ImGui::NextColumn();
-            
             ImGui::TextDisabled(T("Угол обзора (FOV)", "FOV"));
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderFloat("##fov", &g_aim.fov, 1.0f, 30.0f, "%.1f°");
@@ -232,49 +240,46 @@ void RenderImGuiMenu() {
             ImGui::EndTabItem();
         }
 
-        // ================= TEST (ОТЛАДКА) =================
+        // ================= TEST (ОТЛАДКА И ПОИСК) =================
         if (ImGui::BeginTabItem(T("  TEST  ", "  TEST  "))) {
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), T("Отладка оффсетов памяти:", "Memory Offset Debug:"));
             ImGui::Separator();
             ImGui::Spacing();
 
-            // EntityList
-            if (g_debug_entityList > 0) {
-                ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EntityList Base: 0x%X", g_debug_entityList);
-            } else {
-                ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EntityList Base: 0x%X", g_debug_entityList);
-            }
+            if (g_debug_entityList > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EntityList Base: 0x%X", g_debug_entityList);
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EntityList Base: 0x%X", g_debug_entityList);
 
-            // LocalPlayer
-            if (g_debug_localPlayer > 0) {
-                ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
-            } else {
-                ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
-            }
+            if (g_debug_localPlayer > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
 
-            // ViewMatrix
-            if (g_debug_viewMatrixValid) {
-                ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] ViewMatrix");
-            } else {
-                ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] ViewMatrix (Zeros)");
-            }
+            if (g_debug_viewMatrixValid) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] ViewMatrix");
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] ViewMatrix (Zeros)");
 
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 
-            // Первый найденный игрок
-            ImGui::Text(T("Первый найденный игрок (для теста):", "First entity found (test):"));
-            if (g_debug_firstEntity > 0) {
-                ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1), "Address: 0x%X", g_debug_firstEntity);
-                if (g_debug_firstHealth > 0 && g_debug_firstHealth <= 100) {
-                    ImGui::TextColored(ImVec4(0, 1, 0, 1), "Health: %d [OK]", g_debug_firstHealth);
-                } else {
-                    ImGui::TextColored(ImVec4(1, 0, 0, 1), "Health: %d [FAIL]", g_debug_firstHealth);
+            // --- БЛОК BRUTEFORCE ---
+            ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), T("Поиск оффсета здоровья (Bruteforce)", "Health Offset Bruteforce"));
+            if (ImGui::Button(T("Сканировать оффсеты", "Scan offsets"), ImVec2(-1, 25))) {
+                if (g_debug_localPlayer > 0) {
+                    ScanForHealthOffsets(g_hProcess, g_debug_localPlayer);
                 }
+            }
+            
+            ImGui::Spacing();
+            if (!g_healthOffsets.empty()) {
+                ImGui::Text(T("Найдено %d кандидатов. Сравни с HP в игре:", "Found %d candidates. Compare with HP:"), g_healthOffsets.size());
+                
+                // Отрисовываем скроллируемый список
+                ImGui::BeginChild("HealthList", ImVec2(0, 120), true);
+                for (uintptr_t offset : g_healthOffsets) {
+                    int currentVal = 0;
+                    ReadProcessMemory(g_hProcess, (LPCVOID)(g_debug_localPlayer + offset), &currentVal, sizeof(currentVal), nullptr);
+                    ImGui::Text("Offset: 0x%03X   |   Value: %d", offset, currentVal);
+                }
+                ImGui::EndChild();
             } else {
-                ImGui::TextColored(ImVec4(1, 0, 0, 1), T("Игроки не найдены", "No entities found"));
+                ImGui::TextDisabled(T("Нажми кнопку сканирования...", "Press scan button..."));
             }
 
             ImGui::EndTabItem();
@@ -284,23 +289,17 @@ void RenderImGuiMenu() {
         if (ImGui::BeginTabItem(T("  SETTING  ", "  SETTING  "))) {
             ImGui::Spacing();
             ImGui::Columns(2, "set_cols", false);
-            
             ImGui::Text(T("Язык / Language", "Language"));
             const char* langs[] = { "Русский", "English" };
             ImGui::SetNextItemWidth(-1);
             ImGui::Combo("##lang", &g_language, langs, IM_ARRAYSIZE(langs));
             ImGui::NextColumn();
-            
             ImGui::Text(T("Цвет меню", "Menu Color"));
-            if (ImGui::ColorEdit3("##menucol", g_menuColor, ImGuiColorEditFlags_NoInputs)) {
-                ApplyCustomStyle(); 
-            }
+            if (ImGui::ColorEdit3("##menucol", g_menuColor, ImGuiColorEditFlags_NoInputs)) ApplyCustomStyle(); 
             ImGui::Columns(1);
-            ImGui::Spacing();
-            ImGui::Spacing();
+            ImGui::Spacing(); ImGui::Spacing();
             if (ImGui::Button(T("Сбросить настройки", "Reset Settings"), ImVec2(-1, 25))) {
-                g_language = 0;
-                g_menuColor[0] = 0.0f; g_menuColor[1] = 0.9f; g_menuColor[2] = 1.0f;
+                g_language = 0; g_menuColor[0] = 0.0f; g_menuColor[1] = 0.9f; g_menuColor[2] = 1.0f;
                 ApplyCustomStyle();
             }
             ImGui::EndTabItem();
@@ -329,13 +328,11 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
 
     float viewMatrix[4][4];
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
-    // Проверка ViewMatrix (если первые два элемента не нули, значит матрица прочиталась)
-    g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f && viewMatrix[1][1] != 0.0f);
+    g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f);
 
     uintptr_t entityListBase = 0;
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
     g_debug_entityList = entityListBase;
-    
     if (!entityListBase) return players;
 
     uintptr_t localPlayerPtr = 0;
@@ -347,25 +344,16 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     float closestDist = 9999.0f;
     float targetX = 0, targetY = 0;
     bool hasTarget = false;
-    bool foundFirstDebug = false;
 
     for (int i = 1; i <= 32; i++) {
         uintptr_t entityPtr = 0;
         ReadProcessMemory(hProcess, (LPCVOID)(entityListBase + (i * 4)), &entityPtr, sizeof(entityPtr), nullptr);
         
         if (!entityPtr) continue;
-        if (entityPtr == localPlayerPtr) continue; // Пропускаем себя
+        if (entityPtr == localPlayerPtr) continue;
 
         PlayerData p;
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_HEALTH), &p.health, sizeof(p.health), nullptr);
-        
-        // Для отладки сохраняем первого найденного, даже если он мертв
-        if (!foundFirstDebug) {
-            g_debug_firstEntity = entityPtr;
-            g_debug_firstHealth = p.health;
-            foundFirstDebug = true;
-        }
-
         if (p.health <= 0 || p.health > 100) continue;
 
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr);
@@ -506,13 +494,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         static bool insertPressed = false;
         if (GetAsyncKeyState(VK_INSERT) & 0x8000) {
-            if (!insertPressed) {
-                g_showMenu = !g_showMenu;
-                insertPressed = true;
-            }
-        } else {
-            insertPressed = false;
-        }
+            if (!insertPressed) { g_showMenu = !g_showMenu; insertPressed = true; }
+        } else { insertPressed = false; }
 
         if (g_hwndGame && !IsWindow(g_hwndGame)) break;
 
@@ -567,9 +550,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         bool overMenu = false;
         if (g_showMenu) {
             if (pt.x >= g_menuPos.x && pt.x <= g_menuPos.x + g_menuSize.x &&
-                pt.y >= g_menuPos.y && pt.y <= g_menuPos.y + g_menuSize.y) {
-                overMenu = true;
-            }
+                pt.y >= g_menuPos.y && pt.y <= g_menuPos.y + g_menuSize.y) overMenu = true;
         }
 
         LONG_PTR exStyle = GetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE);
