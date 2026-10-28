@@ -75,7 +75,6 @@ const char* T(const char* ru, const char* en) {
 // ==================== Стиль в духе скриншота ====================
 void ApplyCustomStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
-    // Компактные отступы, как на скрине
     style.WindowPadding     = ImVec2(10, 10);
     style.FramePadding      = ImVec2(6, 4);
     style.ItemSpacing       = ImVec2(8, 8);
@@ -86,39 +85,86 @@ void ApplyCustomStyle() {
     ImVec4* colors = style.Colors;
     ImVec4 mainColor = ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f);
     
-    // Темный фон, как на скрине
     colors[ImGuiCol_WindowBg]         = ImVec4(0.08f, 0.08f, 0.08f, 0.95f); 
     colors[ImGuiCol_ChildBg]          = ImVec4(0.05f, 0.05f, 0.05f, 0.50f);
     colors[ImGuiCol_Border]           = ImVec4(mainColor.x, mainColor.y, mainColor.z, 0.30f);
     
-    // Квадратные чекбоксы (серый фон)
     colors[ImGuiCol_FrameBg]          = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
     colors[ImGuiCol_FrameBgHovered]   = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
     colors[ImGuiCol_FrameBgActive]    = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
     
-    colors[ImGuiCol_CheckMark]        = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // Белая галочка
+    colors[ImGuiCol_CheckMark]        = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); 
     colors[ImGuiCol_SliderGrab]       = mainColor;
     colors[ImGuiCol_SliderGrabActive] = mainColor;
     
-    // Плоские вкладки
     colors[ImGuiCol_Tab]              = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
     colors[ImGuiCol_TabHovered]       = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_TabActive]        = mainColor; // Активная вкладка красится в цвет меню
+    colors[ImGuiCol_TabActive]        = mainColor; 
     
     colors[ImGuiCol_Text]             = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
 }
 
-// ==================== Меню ImGui (Дизайн со скрина) ====================
+// ==================== Хелперы процесса ====================
+static DWORD GetProcessIdByName(const wchar_t* name) {
+    DWORD pid = 0;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W pe{ sizeof(pe) };
+        if (Process32FirstW(snap, &pe)) {
+            do {
+                if (_wcsicmp(pe.szExeFile, name) == 0) { pid = pe.th32ProcessID; break; }
+            } while (Process32NextW(snap, &pe));
+        }
+        CloseHandle(snap);
+    }
+    return pid;
+}
+
+static uintptr_t GetModuleBaseAddress(DWORD pid, const wchar_t* moduleName) {
+    uintptr_t baseAddress = 0;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+    if (snap != INVALID_HANDLE_VALUE) {
+        MODULEENTRY32W me{ sizeof(me) };
+        if (Module32FirstW(snap, &me)) {
+            do {
+                if (_wcsicmp(me.szModule, moduleName) == 0) { baseAddress = (uintptr_t)me.modBaseAddr; break; }
+            } while (Module32NextW(snap, &me));
+        }
+        CloseHandle(snap);
+    }
+    return baseAddress;
+}
+
+static bool CreateD3D9Device() {
+    g_pD3D = Direct3DCreate9(D3D_SDK_VERSION);
+    if (!g_pD3D) return false;
+    ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
+    g_d3dpp.Windowed = TRUE;
+    g_d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    g_d3dpp.BackBufferFormat = D3DFMT_A8R8G8B8;   
+    g_d3dpp.BackBufferWidth = 1; g_d3dpp.BackBufferHeight = 1;
+    g_d3dpp.EnableAutoDepthStencil = TRUE;
+    g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
+    g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+
+    HRESULT hr = g_pD3D->CreateDevice(
+        D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, g_hwndOverlay,
+        D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
+        &g_d3dpp, &g_pDevice
+    );
+    if (FAILED(hr)) { g_pD3D->Release(); g_pD3D = nullptr; return false; }
+    return true;
+}
+
+// ==================== Меню ImGui ====================
 void RenderImGuiMenu() {
     ImGui::SetNextWindowSize(ImVec2(500, 320), ImGuiCond_FirstUseEver);
     
-    // Убираем стандартный заголовок окна
     ImGui::Begin("##Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
 
     g_menuPos = ImGui::GetWindowPos();
     g_menuSize = ImGui::GetWindowSize();
 
-    // --- Кастомный заголовок ---
     ImGui::TextColored(ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f), "FLACKSCheat V1 [ CS 1.6 ]");
     
     ImGui::SameLine(ImGui::GetWindowWidth() - 120);
@@ -126,40 +172,34 @@ void RenderImGuiMenu() {
     
     ImGui::SameLine(ImGui::GetWindowWidth() - 30);
     if (ImGui::Button("X", ImVec2(20, 20))) {
-        g_showMenu = false; // Закрываем меню
+        g_showMenu = false; 
     }
     
     ImGui::Separator();
     ImGui::Spacing();
 
-    // --- Вкладки ---
     if (ImGui::BeginTabBar("CheatTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
         
         // ================= ESP =================
         if (ImGui::BeginTabItem("  ESP  ")) {
             ImGui::Spacing();
-            
-            // Разбиваем на 3 колонки как на скрине
             ImGui::Columns(3, "esp_cols", false);
             
-            // Колонка 1
             ImGui::Checkbox(T("Боксы", "Box"), &g_esp.showBox);
-            ImGui::Checkbox(T("Линии", "Line"), &g_esp.showName); // Имена как линии
+            ImGui::Checkbox(T("Линии", "Line"), &g_esp.showName); 
             ImGui::NextColumn();
             
-            // Колонка 2
             ImGui::Checkbox(T("Никнейм", "Name"), &g_esp.showName);
             ImGui::Checkbox(T("Здоровье", "Health"), &g_esp.showHealth);
             ImGui::NextColumn();
             
-            // Колонка 3
             ImGui::Checkbox(T("Включить ESP", "Enable ESP"), &g_esp.enableESP);
             ImGui::Spacing();
             ImGui::TextDisabled(T("Дистанция", "Distance"));
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderFloat("##dist", &g_esp.distance, 50.0f, 2000.0f, "%.0f m");
             
-            ImGui::Columns(1); // Сброс колонок
+            ImGui::Columns(1); 
             
             ImGui::Spacing();
             ImGui::Separator();
@@ -175,7 +215,6 @@ void RenderImGuiMenu() {
         // ================= AIM =================
         if (ImGui::BeginTabItem("  AIM  ")) {
             ImGui::Spacing();
-            
             ImGui::Columns(2, "aim_cols", false);
             
             ImGui::Checkbox(T("Включить Aimbot", "Enable Aimbot"), &g_aim.enableAim);
@@ -199,7 +238,6 @@ void RenderImGuiMenu() {
         // ================= SETTING =================
         if (ImGui::BeginTabItem("  SETTING  ")) {
             ImGui::Spacing();
-            
             ImGui::Columns(2, "set_cols", false);
             
             ImGui::Text(T("Язык / Language", "Language"));
@@ -225,7 +263,6 @@ void RenderImGuiMenu() {
             }
             ImGui::EndTabItem();
         }
-        
         ImGui::EndTabBar();
     }
     ImGui::End();
@@ -462,7 +499,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         g_pDevice->Present(nullptr, nullptr, nullptr, nullptr);
         
-        // Клики
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(g_hwndOverlay, &pt);
