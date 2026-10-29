@@ -68,16 +68,15 @@ static uintptr_t g_debug_entityList = 0;
 static uintptr_t g_debug_localPlayer = 0;
 static int       g_debug_myHealth = -1;
 static bool      g_debug_viewMatrixValid = false;
+static uintptr_t g_debug_firstEntity = 0;
+static int       g_debug_firstHealth = -1;
 
-// Список найденных оффсетов здоровья (для Bruteforce)
-static std::vector<uintptr_t> g_healthOffsets;
-
-// ==================== НОВЫЕ ОФФСЕТЫ ====================
-const uintptr_t OFFSET_ENTITY_LIST = 0x10313C;   // Твой EnemyList
-const uintptr_t OFFSET_LOCAL_PLAYER = 0x100DE4;  // Твой LocalPlayer
-const uintptr_t OFFSET_MY_HP       = 0x100774;   // Твой PlayerHP (статический)
-const uintptr_t OFFSET_ENEMY_HEALTH = 0x1BC;     // HP врага (относительно его структуры)
-const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; // Матрица камеры (нужно проверить)
+// ==================== ОФФСЕТЫ ИЗ ТАБЛИЦЫ ====================
+const uintptr_t OFFSET_ENTITY_LIST  = 0x4E224; 
+const uintptr_t OFFSET_LOCAL_PLAYER = 0x4E224 + 0x10; // 0x4E234
+const uintptr_t OFFSET_VIEW_MATRIX  = 0x4E224 + 0x14; // 0x4E238
+const uintptr_t OFFSET_MY_HP        = 0x4E224 + 0x0C; // 0x4E230
+const uintptr_t OFFSET_ENEMY_HEALTH = 0x0C;           // Относительно игрока
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
@@ -164,21 +163,6 @@ static bool CreateD3D9Device() {
     return true;
 }
 
-// ==================== Функция Bruteforce ====================
-void ScanForHealthOffsets(HANDLE hProcess, uintptr_t localPlayer) {
-    g_healthOffsets.clear();
-    if (!hProcess || !localPlayer) return;
-
-    int healthVal = 0;
-    for (uintptr_t offset = 0; offset < 0x1000; offset += 4) {
-        if (ReadProcessMemory(hProcess, (LPCVOID)(localPlayer + offset), &healthVal, sizeof(healthVal), nullptr)) {
-            if (healthVal >= 0 && healthVal <= 100) {
-                g_healthOffsets.push_back(offset);
-            }
-        }
-    }
-}
-
 // ==================== Меню ImGui ====================
 void RenderImGuiMenu() {
     ImGui::SetNextWindowSize(ImVec2(520, 400), ImGuiCond_FirstUseEver);
@@ -259,6 +243,16 @@ void RenderImGuiMenu() {
             if (g_debug_viewMatrixValid) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] ViewMatrix");
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] ViewMatrix (Zeros)");
 
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+
+            ImGui::Text(T("Первый найденный игрок (для теста):", "First entity found (test):"));
+            if (g_debug_firstEntity > 0) {
+                ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1), "Address: 0x%X", g_debug_firstEntity);
+                if (g_debug_firstHealth > 0 && g_debug_firstHealth <= 100) ImGui::TextColored(ImVec4(0, 1, 0, 1), "Health: %d [OK]", g_debug_firstHealth);
+                else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Health: %d [FAIL]", g_debug_firstHealth);
+            } else {
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), T("Игроки не найдены", "No entities found"));
+            }
             ImGui::EndTabItem();
         }
 
@@ -307,7 +301,6 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
     g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f);
 
-    // Читаем статический HP
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_MY_HP), &g_debug_myHealth, sizeof(g_debug_myHealth), nullptr);
 
     uintptr_t entityListBase = 0;
@@ -324,6 +317,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     float closestDist = 9999.0f;
     float targetX = 0, targetY = 0;
     bool hasTarget = false;
+    bool foundFirstDebug = false;
 
     for (int i = 1; i <= 32; i++) {
         uintptr_t entityPtr = 0;
@@ -334,9 +328,16 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
 
         PlayerData p;
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_HEALTH), &p.health, sizeof(p.health), nullptr);
+
+        if (!foundFirstDebug) {
+            g_debug_firstEntity = entityPtr;
+            g_debug_firstHealth = p.health;
+            foundFirstDebug = true;
+        }
+
         if (p.health <= 0 || p.health > 100) continue;
 
-        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr);
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr); // Пока оставили старый оффсет координат
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x10), &p.name, 31, nullptr);
         p.name[31] = '\0';
 
