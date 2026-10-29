@@ -63,7 +63,7 @@ static bool               g_showMenu      = true;
 static ImVec2             g_menuPos       = ImVec2(0, 0);
 static ImVec2             g_menuSize      = ImVec2(0, 0);
 
-// Переменные для отладки (вкладка TEST)
+// Переменные для отладки
 static uintptr_t g_debug_entityList = 0;
 static uintptr_t g_debug_localPlayer = 0;
 static int       g_debug_myHealth = -1;
@@ -71,13 +71,13 @@ static bool      g_debug_viewMatrixValid = false;
 static uintptr_t g_debug_firstEntity = 0;
 static int       g_debug_firstHealth = -1;
 
-// ==================== НОВЫЕ ОФФСЕТЫ (Из Python-чита) ====================
-const uintptr_t OFFSET_ENTITY_LIST  = 0x105F0C0; // PlayerListSec
-const uintptr_t OFFSET_LOCAL_PLAYER = 0x16CF20;  // LocalPlayerPtr
-const uintptr_t OFFSET_VIEW_MATRIX  = 0xEC9780;  // ViewMatrix
-const uintptr_t OFFSET_MY_HP        = 0x121738;  // HudHp
-const uintptr_t OFFSET_ENEMY_HEALTH = 0x59C;     // Из твоего CE теста
-const uintptr_t OFFSET_ENEMY_POS    = 0xB48;     // Координаты (из Python 2888)
+// ==================== ОФФСЕТЫ ИЗ KLESKBY ====================
+const uintptr_t OFFSET_ENTITY_LIST  = 0x12043C8; // Из KleskBY
+const uintptr_t OFFSET_LOCAL_PLAYER = 0x16CF20;  // Из Python
+const uintptr_t OFFSET_VIEW_MATRIX  = 0xEC7AB0;  // Из KleskBY (паттерн)
+const uintptr_t OFFSET_MY_HP        = 0x121738;  // HudHp (Из Python)
+const uintptr_t OFFSET_ENEMY_HEALTH = 0x59C;     // Твой оффсет здоровья
+const uintptr_t OFFSET_ENEMY_POS    = 0x188;     // Из KleskBY (PlayerInfo)
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
@@ -339,7 +339,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         if (p.health <= 0 || p.health > 100) continue;
 
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_POS), &p.worldPos, sizeof(p.worldPos), nullptr);
-        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x10), &p.name, 31, nullptr); // Оффсет имени оставим старый
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x104), &p.name, 31, nullptr); // Name offset from KleskBY PlayerInfo
         p.name[31] = '\0';
 
         if (WorldToScreen(p.worldPos, p.screenPos, viewMatrix, sw, sh)) {
