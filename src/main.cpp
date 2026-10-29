@@ -60,19 +60,23 @@ static HWND               g_hwndGame      = nullptr;
 static HANDLE             g_hProcess      = nullptr;
 static bool               g_showMenu      = true;   
 
-// Для отладки
+// ВОТ ОНИ, ТЕ САМЫЕ ПЕРЕМЕННЫЕ!
+static ImVec2             g_menuPos       = ImVec2(0, 0);
+static ImVec2             g_menuSize      = ImVec2(0, 0);
+
+// Переменные для отладки (вкладка TEST)
 static uintptr_t g_debug_entityList = 0;
 static uintptr_t g_debug_localPlayer = 0;
 static int       g_debug_firstHealth = -1;
 static bool      g_debug_viewMatrixValid = false;
 
 // ==================== ОФФСЕТЫ ====================
-// Внимание: EntityList находится в mp.dll!
+// EntityList находится в mp.dll!
 const uintptr_t OFFSET_ENTITY_LIST  = 0x176620; 
 const uintptr_t OFFSET_LOCAL_PLAYER = 0x18D504; 
 const uintptr_t OFFSET_ENEMY_HEALTH = 0x59C;    
-const uintptr_t OFFSET_ENEMY_POS    = 0x1BC;    // Попробуем 0x1BC для координат
-const uintptr_t OFFSET_VIEW_MATRIX  = 0x00DF5D04; // Если боксы не на месте, будем менять
+const uintptr_t OFFSET_ENEMY_POS    = 0x1BC;    
+const uintptr_t OFFSET_VIEW_MATRIX  = 0x00DF5D04; 
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
@@ -293,7 +297,6 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
     g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f);
 
-    // Читаем EntityList из mp.dll!
     uintptr_t entityListBase = 0;
     ReadProcessMemory(hProcess, (LPCVOID)(mpBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
     g_debug_entityList = entityListBase;
@@ -453,7 +456,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         g_hProcess = OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, pid);
         if (g_hProcess) {
             hwBase = GetModuleBaseAddress(pid, L"hw.dll");
-            mpBase = GetModuleBaseAddress(pid, L"mp.dll"); // Ищем mp.dll!
+            mpBase = GetModuleBaseAddress(pid, L"mp.dll");
         }
     }
 
@@ -500,7 +503,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         ImGui::GetIO().MouseDrawCursor = g_showMenu;
         if (g_showMenu) RenderImGuiMenu();
 
-        // Передаем оба модуля!
         auto players = GetPlayersAndProcessAim(g_hProcess, hwBase, mpBase, width, height);
         DrawESPOverlay(ImGui::GetBackgroundDrawList(), players);
 
