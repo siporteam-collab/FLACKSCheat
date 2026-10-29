@@ -60,23 +60,19 @@ static HWND               g_hwndGame      = nullptr;
 static HANDLE             g_hProcess      = nullptr;
 static bool               g_showMenu      = true;   
 
-static ImVec2             g_menuPos       = ImVec2(0, 0);
-static ImVec2             g_menuSize      = ImVec2(0, 0);
-
-// Переменные для отладки (вкладка TEST)
+// Для отладки
 static uintptr_t g_debug_entityList = 0;
 static uintptr_t g_debug_localPlayer = 0;
-static int       g_debug_myHealth = -1;
-static bool      g_debug_viewMatrixValid = false;
-static uintptr_t g_debug_firstEntity = 0;
 static int       g_debug_firstHealth = -1;
+static bool      g_debug_viewMatrixValid = false;
 
-// ==================== ОФФСЕТЫ ИЗ ТАБЛИЦЫ ====================
-const uintptr_t OFFSET_ENTITY_LIST  = 0x4E224; 
-const uintptr_t OFFSET_LOCAL_PLAYER = 0x4E224 + 0x10; // 0x4E234
-const uintptr_t OFFSET_VIEW_MATRIX  = 0x4E224 + 0x14; // 0x4E238
-const uintptr_t OFFSET_MY_HP        = 0x4E224 + 0x0C; // 0x4E230
-const uintptr_t OFFSET_ENEMY_HEALTH = 0x0C;           // Относительно игрока
+// ==================== ОФФСЕТЫ ====================
+// Внимание: EntityList находится в mp.dll!
+const uintptr_t OFFSET_ENTITY_LIST  = 0x176620; 
+const uintptr_t OFFSET_LOCAL_PLAYER = 0x18D504; 
+const uintptr_t OFFSET_ENEMY_HEALTH = 0x59C;    
+const uintptr_t OFFSET_ENEMY_POS    = 0x1BC;    // Попробуем 0x1BC для координат
+const uintptr_t OFFSET_VIEW_MATRIX  = 0x00DF5D04; // Если боксы не на месте, будем менять
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
@@ -231,14 +227,11 @@ void RenderImGuiMenu() {
             ImGui::Separator();
             ImGui::Spacing();
 
-            if (g_debug_entityList > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EnemyList Base: 0x%X", g_debug_entityList);
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EnemyList Base: 0x%X", g_debug_entityList);
+            if (g_debug_entityList > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EntityList Base: 0x%X", g_debug_entityList);
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EntityList Base: 0x%X", g_debug_entityList);
 
             if (g_debug_localPlayer > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
-
-            if (g_debug_myHealth >= 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] My HP (Static): %d", g_debug_myHealth);
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] My HP (Static): %d", g_debug_myHealth);
 
             if (g_debug_viewMatrixValid) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] ViewMatrix");
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] ViewMatrix (Zeros)");
@@ -246,8 +239,7 @@ void RenderImGuiMenu() {
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 
             ImGui::Text(T("Первый найденный игрок (для теста):", "First entity found (test):"));
-            if (g_debug_firstEntity > 0) {
-                ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1), "Address: 0x%X", g_debug_firstEntity);
+            if (g_debug_firstHealth >= 0) {
                 if (g_debug_firstHealth > 0 && g_debug_firstHealth <= 100) ImGui::TextColored(ImVec4(0, 1, 0, 1), "Health: %d [OK]", g_debug_firstHealth);
                 else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Health: %d [FAIL]", g_debug_firstHealth);
             } else {
@@ -293,18 +285,17 @@ bool WorldToScreen(float* world, float* screen, float matrix[4][4], int sw, int 
 }
 
 // ==================== Чтение памяти и Aimbot ====================
-std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBase, int sw, int sh) {
+std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBase, uintptr_t mpBase, int sw, int sh) {
     std::vector<PlayerData> players;
-    if (!hProcess || !hwBase) return players;
+    if (!hProcess || !hwBase || !mpBase) return players;
 
     float viewMatrix[4][4];
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
     g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f);
 
-    ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_MY_HP), &g_debug_myHealth, sizeof(g_debug_myHealth), nullptr);
-
+    // Читаем EntityList из mp.dll!
     uintptr_t entityListBase = 0;
-    ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
+    ReadProcessMemory(hProcess, (LPCVOID)(mpBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
     g_debug_entityList = entityListBase;
     if (!entityListBase) return players;
 
@@ -330,14 +321,13 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_HEALTH), &p.health, sizeof(p.health), nullptr);
 
         if (!foundFirstDebug) {
-            g_debug_firstEntity = entityPtr;
             g_debug_firstHealth = p.health;
             foundFirstDebug = true;
         }
 
         if (p.health <= 0 || p.health > 100) continue;
 
-        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr); // Пока оставили старый оффсет координат
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_POS), &p.worldPos, sizeof(p.worldPos), nullptr);
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x10), &p.name, 31, nullptr);
         p.name[31] = '\0';
 
@@ -458,9 +448,13 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
     DWORD pid = GetProcessIdByName(L"hl.exe");
     uintptr_t hwBase = 0;
+    uintptr_t mpBase = 0;
     if (pid) {
         g_hProcess = OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, pid);
-        if (g_hProcess) hwBase = GetModuleBaseAddress(pid, L"hw.dll");
+        if (g_hProcess) {
+            hwBase = GetModuleBaseAddress(pid, L"hw.dll");
+            mpBase = GetModuleBaseAddress(pid, L"mp.dll"); // Ищем mp.dll!
+        }
     }
 
     bool done = false;
@@ -506,7 +500,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         ImGui::GetIO().MouseDrawCursor = g_showMenu;
         if (g_showMenu) RenderImGuiMenu();
 
-        auto players = GetPlayersAndProcessAim(g_hProcess, hwBase, width, height);
+        // Передаем оба модуля!
+        auto players = GetPlayersAndProcessAim(g_hProcess, hwBase, mpBase, width, height);
         DrawESPOverlay(ImGui::GetBackgroundDrawList(), players);
 
         ImGui::EndFrame();
