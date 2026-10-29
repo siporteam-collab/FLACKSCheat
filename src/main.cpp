@@ -71,13 +71,14 @@ static bool      g_debug_viewMatrixValid = false;
 static uintptr_t g_debug_firstEntity = 0;
 static int       g_debug_firstHealth = -1;
 
-// ==================== ОФФСЕТЫ ИЗ KLESKBY ====================
-const uintptr_t OFFSET_ENTITY_LIST  = 0x12043C8; // Из KleskBY
-const uintptr_t OFFSET_LOCAL_PLAYER = 0x16CF20;  // Из Python
-const uintptr_t OFFSET_VIEW_MATRIX  = 0xEC7AB0;  // Из KleskBY (паттерн)
-const uintptr_t OFFSET_MY_HP        = 0x121738;  // HudHp (Из Python)
-const uintptr_t OFFSET_ENEMY_HEALTH = 0x59C;     // Твой оффсет здоровья
-const uintptr_t OFFSET_ENEMY_POS    = 0x188;     // Из KleskBY (PlayerInfo)
+// ==================== ОФФСЕТЫ ДЛЯ БИЛДА 4554 ====================
+const uintptr_t OFFSET_ENTITY_LIST  = 0xC7438C;  // Стандартный EntityList
+const uintptr_t OFFSET_LOCAL_PLAYER = 0x18D504;  // LocalPlayer (твой, он давал верный указатель)
+const uintptr_t OFFSET_VIEW_MATRIX  = 0xDF5D04;  // Стандартная ViewMatrix для 4554
+const uintptr_t OFFSET_MY_HP        = 0x121738;  // HudHp
+const uintptr_t OFFSET_ENEMY_HEALTH = 0x59C;     // HP бота (проверено тобой)
+const uintptr_t OFFSET_ENEMY_POS    = 0x304;     // Координаты X, Y, Z
+const uintptr_t OFFSET_ENEMY_NAME   = 0x104;     // Имя игрока (PlayerInfo)
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
@@ -300,7 +301,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
 
     float viewMatrix[4][4];
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
-    g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f);
+    g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f && viewMatrix[1][1] != 0.0f);
 
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_MY_HP), &g_debug_myHealth, sizeof(g_debug_myHealth), nullptr);
 
@@ -339,7 +340,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         if (p.health <= 0 || p.health > 100) continue;
 
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_POS), &p.worldPos, sizeof(p.worldPos), nullptr);
-        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x104), &p.name, 31, nullptr); // Name offset from KleskBY PlayerInfo
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_NAME), &p.name, 31, nullptr);
         p.name[31] = '\0';
 
         if (WorldToScreen(p.worldPos, p.screenPos, viewMatrix, sw, sh)) {
