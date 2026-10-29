@@ -66,16 +66,18 @@ static ImVec2             g_menuSize      = ImVec2(0, 0);
 // Переменные для отладки (вкладка TEST)
 static uintptr_t g_debug_entityList = 0;
 static uintptr_t g_debug_localPlayer = 0;
+static int       g_debug_myHealth = -1;
 static bool      g_debug_viewMatrixValid = false;
 
 // Список найденных оффсетов здоровья (для Bruteforce)
 static std::vector<uintptr_t> g_healthOffsets;
 
-// ОФФСЕТЫ (Из IDA Pro)
-const uintptr_t OFFSET_ENTITY_LIST = 0x00A6E628; 
-const uintptr_t OFFSET_LOCAL_PLAYER = 0x0018D504; 
-const uintptr_t OFFSET_HEALTH      = 0x1BC;      
-const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; 
+// ==================== НОВЫЕ ОФФСЕТЫ ====================
+const uintptr_t OFFSET_ENTITY_LIST = 0x10313C;   // Твой EnemyList
+const uintptr_t OFFSET_LOCAL_PLAYER = 0x100DE4;  // Твой LocalPlayer
+const uintptr_t OFFSET_MY_HP       = 0x100774;   // Твой PlayerHP (статический)
+const uintptr_t OFFSET_ENEMY_HEALTH = 0x1BC;     // HP врага (относительно его структуры)
+const uintptr_t OFFSET_VIEW_MATRIX = 0x00DF5D04; // Матрица камеры (нужно проверить)
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
@@ -101,7 +103,7 @@ void ApplyCustomStyle() {
     colors[ImGuiCol_FrameBg]          = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
     colors[ImGuiCol_FrameBgHovered]   = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
     colors[ImGuiCol_FrameBgActive]    = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
-    colors[ImGuiCol_CheckMark]        = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); 
+    colors[ImGuiCol_CheckMark]        = ImVec4(1.0f, 1.0f, 1.0f, 1.00f); 
     colors[ImGuiCol_SliderGrab]       = mainColor;
     colors[ImGuiCol_SliderGrabActive] = mainColor;
     colors[ImGuiCol_Tab]              = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
@@ -162,16 +164,14 @@ static bool CreateD3D9Device() {
     return true;
 }
 
-// ==================== Функция Bruteforce (Перебор оффсетов) ====================
+// ==================== Функция Bruteforce ====================
 void ScanForHealthOffsets(HANDLE hProcess, uintptr_t localPlayer) {
     g_healthOffsets.clear();
     if (!hProcess || !localPlayer) return;
 
     int healthVal = 0;
-    // Перебираем от 0x00 до 0x1000 (4096 байт), с шагом 4 (так как int занимает 4 байта)
     for (uintptr_t offset = 0; offset < 0x1000; offset += 4) {
         if (ReadProcessMemory(hProcess, (LPCVOID)(localPlayer + offset), &healthVal, sizeof(healthVal), nullptr)) {
-            // Если значение от 0 до 100 — это кандидат на здоровье
             if (healthVal >= 0 && healthVal <= 100) {
                 g_healthOffsets.push_back(offset);
             }
@@ -181,7 +181,7 @@ void ScanForHealthOffsets(HANDLE hProcess, uintptr_t localPlayer) {
 
 // ==================== Меню ImGui ====================
 void RenderImGuiMenu() {
-    ImGui::SetNextWindowSize(ImVec2(520, 450), ImGuiCond_FirstUseEver); // Сделали окно повыше для списка
+    ImGui::SetNextWindowSize(ImVec2(520, 400), ImGuiCond_FirstUseEver);
     ImGui::Begin("##Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 
     g_menuPos = ImGui::GetWindowPos();
@@ -240,47 +240,24 @@ void RenderImGuiMenu() {
             ImGui::EndTabItem();
         }
 
-        // ================= TEST (ОТЛАДКА И ПОИСК) =================
+        // ================= TEST =================
         if (ImGui::BeginTabItem(T("  TEST  ", "  TEST  "))) {
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), T("Отладка оффсетов памяти:", "Memory Offset Debug:"));
             ImGui::Separator();
             ImGui::Spacing();
 
-            if (g_debug_entityList > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EntityList Base: 0x%X", g_debug_entityList);
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EntityList Base: 0x%X", g_debug_entityList);
+            if (g_debug_entityList > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EnemyList Base: 0x%X", g_debug_entityList);
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EnemyList Base: 0x%X", g_debug_entityList);
 
             if (g_debug_localPlayer > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
 
+            if (g_debug_myHealth >= 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] My HP (Static): %d", g_debug_myHealth);
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] My HP (Static): %d", g_debug_myHealth);
+
             if (g_debug_viewMatrixValid) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] ViewMatrix");
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] ViewMatrix (Zeros)");
-
-            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-
-            // --- БЛОК BRUTEFORCE ---
-            ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), T("Поиск оффсета здоровья (Bruteforce)", "Health Offset Bruteforce"));
-            if (ImGui::Button(T("Сканировать оффсеты", "Scan offsets"), ImVec2(-1, 25))) {
-                if (g_debug_localPlayer > 0) {
-                    ScanForHealthOffsets(g_hProcess, g_debug_localPlayer);
-                }
-            }
-            
-            ImGui::Spacing();
-            if (!g_healthOffsets.empty()) {
-                ImGui::Text(T("Найдено %d кандидатов. Сравни с HP в игре:", "Found %d candidates. Compare with HP:"), g_healthOffsets.size());
-                
-                // Отрисовываем скроллируемый список
-                ImGui::BeginChild("HealthList", ImVec2(0, 120), true);
-                for (uintptr_t offset : g_healthOffsets) {
-                    int currentVal = 0;
-                    ReadProcessMemory(g_hProcess, (LPCVOID)(g_debug_localPlayer + offset), &currentVal, sizeof(currentVal), nullptr);
-                    ImGui::Text("Offset: 0x%03X   |   Value: %d", offset, currentVal);
-                }
-                ImGui::EndChild();
-            } else {
-                ImGui::TextDisabled(T("Нажми кнопку сканирования...", "Press scan button..."));
-            }
 
             ImGui::EndTabItem();
         }
@@ -330,6 +307,9 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
     g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f);
 
+    // Читаем статический HP
+    ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_MY_HP), &g_debug_myHealth, sizeof(g_debug_myHealth), nullptr);
+
     uintptr_t entityListBase = 0;
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
     g_debug_entityList = entityListBase;
@@ -353,7 +333,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         if (entityPtr == localPlayerPtr) continue;
 
         PlayerData p;
-        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_HEALTH), &p.health, sizeof(p.health), nullptr);
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_HEALTH), &p.health, sizeof(p.health), nullptr);
         if (p.health <= 0 || p.health > 100) continue;
 
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x304), &p.worldPos, sizeof(p.worldPos), nullptr);
