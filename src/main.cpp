@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 
 #include <d3d9.h>
 
@@ -71,14 +72,35 @@ static bool      g_debug_viewMatrixValid = false;
 static uintptr_t g_debug_firstEntity = 0;
 static int       g_debug_firstHealth = -1;
 
-// ==================== ОФФСЕТЫ ДЛЯ БИЛДА 4554 ====================
-const uintptr_t OFFSET_ENTITY_LIST  = 0xC7438C;  // Стандартный EntityList
-const uintptr_t OFFSET_LOCAL_PLAYER = 0x18D504;  // LocalPlayer (твой, он давал верный указатель)
-const uintptr_t OFFSET_VIEW_MATRIX  = 0xDF5D04;  // Стандартная ViewMatrix для 4554
-const uintptr_t OFFSET_MY_HP        = 0x121738;  // HudHp
-const uintptr_t OFFSET_ENEMY_HEALTH = 0x59C;     // HP бота (проверено тобой)
-const uintptr_t OFFSET_ENEMY_POS    = 0x304;     // Координаты X, Y, Z
-const uintptr_t OFFSET_ENEMY_NAME   = 0x104;     // Имя игрока (PlayerInfo)
+// ==================== ПЕРЕМЕННЫЕ ОФФСЕТЫ (Меняются в меню) ====================
+uintptr_t OFFSET_ENTITY_LIST  = 0x0; 
+uintptr_t OFFSET_LOCAL_PLAYER = 0x0; 
+uintptr_t OFFSET_VIEW_MATRIX  = 0x0; 
+uintptr_t OFFSET_ENEMY_HEALTH = 0x59C; 
+uintptr_t OFFSET_ENEMY_POS    = 0x304; 
+uintptr_t OFFSET_ENEMY_NAME   = 0x10;  
+
+// Буферы для ввода текста в ImGui
+static char bufEntityList[32] = "0x0";
+static char bufLocalPlayer[32] = "0x0";
+static char bufViewMatrix[32] = "0x0";
+static char bufEnemyHealth[32] = "0x59C";
+static char bufEnemyPos[32] = "0x304";
+static char bufEnemyName[32] = "0x10";
+
+// Функция применения оффсетов из текстовых полей
+void ApplyOffsetsFromUI() {
+    try {
+        OFFSET_ENTITY_LIST  = std::stoul(bufEntityList, nullptr, 16);
+        OFFSET_LOCAL_PLAYER = std::stoul(bufLocalPlayer, nullptr, 16);
+        OFFSET_VIEW_MATRIX  = std::stoul(bufViewMatrix, nullptr, 16);
+        OFFSET_ENEMY_HEALTH = std::stoul(bufEnemyHealth, nullptr, 16);
+        OFFSET_ENEMY_POS    = std::stoul(bufEnemyPos, nullptr, 16);
+        OFFSET_ENEMY_NAME   = std::stoul(bufEnemyName, nullptr, 16);
+    } catch (...) {
+        // Игнорируем ошибки, если ввели мусор
+    }
+}
 
 // ==================== Функция перевода ====================
 const char* T(const char* ru, const char* en) {
@@ -167,7 +189,7 @@ static bool CreateD3D9Device() {
 
 // ==================== Меню ImGui ====================
 void RenderImGuiMenu() {
-    ImGui::SetNextWindowSize(ImVec2(520, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(550, 450), ImGuiCond_FirstUseEver);
     ImGui::Begin("##Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 
     g_menuPos = ImGui::GetWindowPos();
@@ -226,6 +248,32 @@ void RenderImGuiMenu() {
             ImGui::EndTabItem();
         }
 
+        // ================= OFFSETS =================
+        if (ImGui::BeginTabItem(T("  OFFSETS  ", "  OFFSETS  "))) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), T("Введите адреса из Cheat Engine (в Hex):", "Enter Cheat Engine addresses (Hex):"));
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            ImGui::InputText(T("EntityList", "EntityList"), bufEntityList, IM_ARRAYSIZE(bufEntityList));
+            ImGui::InputText(T("LocalPlayer", "LocalPlayer"), bufLocalPlayer, IM_ARRAYSIZE(bufLocalPlayer));
+            ImGui::InputText(T("ViewMatrix", "ViewMatrix"), bufViewMatrix, IM_ARRAYSIZE(bufViewMatrix));
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            ImGui::TextDisabled(T("Смещения внутри структуры игрока:", "Offsets inside player structure:"));
+            ImGui::InputText(T("Health Offset", "Health Offset"), bufEnemyHealth, IM_ARRAYSIZE(bufEnemyHealth));
+            ImGui::InputText(T("Position Offset", "Position Offset"), bufEnemyPos, IM_ARRAYSIZE(bufEnemyPos));
+            ImGui::InputText(T("Name Offset", "Name Offset"), bufEnemyName, IM_ARRAYSIZE(bufEnemyName));
+
+            ImGui::Spacing();
+            if (ImGui::Button(T("Применить оффсеты", "Apply Offsets"), ImVec2(-1, 30))) {
+                ApplyOffsetsFromUI();
+            }
+
+            ImGui::EndTabItem();
+        }
+
         // ================= TEST =================
         if (ImGui::BeginTabItem(T("  TEST  ", "  TEST  "))) {
             ImGui::Spacing();
@@ -238,9 +286,6 @@ void RenderImGuiMenu() {
 
             if (g_debug_localPlayer > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
-
-            if (g_debug_myHealth >= 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] My HP (Static): %d", g_debug_myHealth);
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] My HP (Static): %d", g_debug_myHealth);
 
             if (g_debug_viewMatrixValid) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] ViewMatrix");
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] ViewMatrix (Zeros)");
@@ -297,13 +342,11 @@ bool WorldToScreen(float* world, float* screen, float matrix[4][4], int sw, int 
 // ==================== Чтение памяти и Aimbot ====================
 std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBase, int sw, int sh) {
     std::vector<PlayerData> players;
-    if (!hProcess || !hwBase) return players;
+    if (!hProcess || !hwBase || OFFSET_ENTITY_LIST == 0 || OFFSET_VIEW_MATRIX == 0) return players;
 
     float viewMatrix[4][4];
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
     g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f && viewMatrix[1][1] != 0.0f);
-
-    ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_MY_HP), &g_debug_myHealth, sizeof(g_debug_myHealth), nullptr);
 
     uintptr_t entityListBase = 0;
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
