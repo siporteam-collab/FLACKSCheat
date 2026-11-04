@@ -72,7 +72,7 @@ static bool      g_debug_viewMatrixValid = false;
 static uintptr_t g_debug_firstEntity = 0;
 static int       g_debug_firstHealth = -1;
 
-// ==================== ПЕРЕМЕННЫЕ ОФФСЕТЫ (Меняются в меню) ====================
+// ==================== ПЕРЕМЕННЫЕ ОФФСЕТЫ ====================
 uintptr_t OFFSET_ENTITY_LIST  = 0x0; 
 uintptr_t OFFSET_LOCAL_PLAYER = 0x0; 
 uintptr_t OFFSET_VIEW_MATRIX  = 0x0; 
@@ -97,9 +97,7 @@ void ApplyOffsetsFromUI() {
         OFFSET_ENEMY_HEALTH = std::stoul(bufEnemyHealth, nullptr, 16);
         OFFSET_ENEMY_POS    = std::stoul(bufEnemyPos, nullptr, 16);
         OFFSET_ENEMY_NAME   = std::stoul(bufEnemyName, nullptr, 16);
-    } catch (...) {
-        // Игнорируем ошибки, если ввели мусор
-    }
+    } catch (...) {}
 }
 
 // ==================== Функция перевода ====================
@@ -209,6 +207,10 @@ void RenderImGuiMenu() {
         // ================= ESP =================
         if (ImGui::BeginTabItem(T("  ESP  ", "  ESP  "))) {
             ImGui::Spacing();
+            ImGui::TextColored(ImVec4(g_menuColor[0], g_menuColor[1], g_menuColor[2], 1.0f), T("[ F10 ] — Скрыть / Показать меню", "[ F10 ] — Show / Hide menu"));
+            ImGui::Separator();
+            ImGui::Spacing();
+            
             ImGui::Columns(3, "esp_cols", false);
             ImGui::Checkbox(T("Боксы", "Box"), &g_esp.showBox);
             ImGui::Checkbox(T("Линии", "Line"), &g_esp.showName); 
@@ -471,8 +473,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     int width  = rect.right  - rect.left;
     int height = rect.bottom - rect.top;
 
+    // Убрали WS_EX_NOACTIVATE, чтобы окно могло получать фокус
     g_hwndOverlay = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, 
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, 
         wc.lpszClassName, L"Overlay",
         WS_POPUP, rect.left, rect.top, width, height,
         nullptr, nullptr, hInstance, nullptr
@@ -487,6 +490,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
     ShowWindow(g_hwndOverlay, SW_SHOW);
     UpdateWindow(g_hwndOverlay);
+
+    // Отдаем фокус игре при старте
+    SetForegroundWindow(g_hwndGame);
 
     if (!CreateD3D9Device()) return 1;
 
@@ -509,6 +515,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     }
 
     bool done = false;
+    bool lastFocusState = false; 
+
     while (!done) {
         MSG msg;
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -518,10 +526,12 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         }
         if (done) break;
 
-        static bool insertPressed = false;
-        if (GetAsyncKeyState(VK_INSERT) & 0x8000) {
-            if (!insertPressed) { g_showMenu = !g_showMenu; insertPressed = true; }
-        } else { insertPressed = false; }
+        // ===== ИЗМЕНЕНО НА F10 =====
+        static bool f10Pressed = false;
+        if (GetAsyncKeyState(VK_F10) & 0x8000) {
+            if (!f10Pressed) { g_showMenu = !g_showMenu; f10Pressed = true; }
+        } else { f10Pressed = false; }
+        // ==========================
 
         if (g_hwndGame && !IsWindow(g_hwndGame)) break;
 
@@ -579,13 +589,35 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
                 pt.y >= g_menuPos.y && pt.y <= g_menuPos.y + g_menuSize.y) overMenu = true;
         }
 
-        LONG_PTR exStyle = GetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE);
-        if (overMenu) {
-            if (exStyle & WS_EX_TRANSPARENT) {
-                SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
-                SetWindowPos(g_hwndOverlay, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        // Логика фокуса
+        if (g_showMenu) {
+            if (overMenu) {
+                if (!lastFocusState) {
+                    SetForegroundWindow(g_hwndOverlay);
+                    lastFocusState = true;
+                }
+                LONG_PTR exStyle = GetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE);
+                if (exStyle & WS_EX_TRANSPARENT) {
+                    SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
+                    SetWindowPos(g_hwndOverlay, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                }
+            } else {
+                if (lastFocusState) {
+                    SetForegroundWindow(g_hwndGame);
+                    lastFocusState = false;
+                }
+                LONG_PTR exStyle = GetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE);
+                if (!(exStyle & WS_EX_TRANSPARENT)) {
+                    SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+                    SetWindowPos(g_hwndOverlay, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                }
             }
         } else {
+            if (lastFocusState) {
+                SetForegroundWindow(g_hwndGame);
+                lastFocusState = false;
+            }
+            LONG_PTR exStyle = GetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE);
             if (!(exStyle & WS_EX_TRANSPARENT)) {
                 SetWindowLongPtrW(g_hwndOverlay, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
                 SetWindowPos(g_hwndOverlay, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
