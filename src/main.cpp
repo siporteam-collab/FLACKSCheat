@@ -10,7 +10,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <fstream> // Встроенная библиотека С++
+#include <fstream>
 
 #include <d3d9.h>
 
@@ -194,12 +194,21 @@ void DumpMemoryToFile(HANDLE hProcess, uintptr_t hwBase) {
     dumpFile << "=== CS 1.6 Memory Dump ===\n";
     dumpFile << "hwBase: 0x" << std::hex << hwBase << std::dec << "\n\n";
 
-    uintptr_t entityListBase = hwBase + OFFSET_ENTITY_LIST;
-    dumpFile << "Direct EntityList Base: 0x" << std::hex << entityListBase << "\n\n";
+    // ЧИТАЕМ УКАЗАТЕЛЬ НА МАССИВ
+    uintptr_t entityListPtr = 0;
+    ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListPtr, sizeof(entityListPtr), nullptr);
+    
+    dumpFile << "EntityList Pointer: 0x" << std::hex << entityListPtr << std::dec << "\n";
+    dumpFile << "Pointer Address in hw.dll: 0x" << std::hex << (hwBase + OFFSET_ENTITY_LIST) << std::dec << "\n\n";
 
-    dumpFile << "--- Dumping Entities (1 to 50) ---\n";
-    for (int i = 1; i <= 50; i++) {
-        uintptr_t entityPtr = entityListBase + (i * 0x1380);
+    if (!entityListPtr) {
+        dumpFile << "Pointer is NULL! Game not in match?\n";
+        return;
+    }
+
+    dumpFile << "--- Dumping Entities (1 to 512) ---\n";
+    for (int i = 1; i <= 512; i++) {
+        uintptr_t entityPtr = entityListPtr + (i * 0x1380);
         
         int health = 0;
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_HEALTH), &health, sizeof(health), nullptr);
@@ -210,7 +219,8 @@ void DumpMemoryToFile(HANDLE hProcess, uintptr_t hwBase) {
         char name[32] = { 0 };
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_NAME), &name, 31, nullptr);
 
-        if (health > 0 || pos[0] != 0 || pos[1] != 0 || pos[2] != 0) {
+        // Пишем только то, что похоже на игрока (здоровье от 1 до 100)
+        if (health > 0 && health <= 100) {
             dumpFile << "[" << i << "] Addr: 0x" << std::hex << entityPtr << std::dec 
                      << " | HP: " << health 
                      << " | Pos: " << pos[0] << ", " << pos[1] << ", " << pos[2]
@@ -318,8 +328,8 @@ void RenderImGuiMenu() {
             ImGui::Separator();
             ImGui::Spacing();
 
-            if (g_debug_entityList > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EntityList Base: 0x%X", g_debug_entityList);
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EntityList Base: 0x%X", g_debug_entityList);
+            if (g_debug_entityList > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] EntityList Ptr: 0x%X", g_debug_entityList);
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] EntityList Ptr: 0x%X", g_debug_entityList);
 
             if (g_debug_localPlayer > 0) ImGui::TextColored(ImVec4(0, 1, 0, 1), "[OK] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] LocalPlayer Ptr: 0x%X", g_debug_localPlayer);
@@ -397,9 +407,12 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         
     g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f && viewMatrix[1][1] != 0.0f);
 
-    uintptr_t entityListBase = hwBase + OFFSET_ENTITY_LIST;
-    g_debug_entityList = entityListBase;
-    if (!entityListBase) return players;
+    // ЧИТАЕМ УКАЗАТЕЛЬ
+    uintptr_t entityListPtr = 0;
+    if (!ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListPtr, sizeof(entityListPtr), nullptr))
+        return players;
+    g_debug_entityList = entityListPtr;
+    if (!entityListPtr) return players;
 
     uintptr_t localPlayerPtr = 0;
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_LOCAL_PLAYER), &localPlayerPtr, sizeof(localPlayerPtr), nullptr);
@@ -413,7 +426,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     bool foundFirstDebug = false;
 
     for (int i = 1; i <= 512; i++) {
-        uintptr_t entityPtr = entityListBase + (i * 0x1380);
+        uintptr_t entityPtr = entityListPtr + (i * 0x1380);
         
         if (entityPtr == localPlayerPtr) continue;
 
