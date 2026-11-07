@@ -77,7 +77,7 @@ static int       g_debug_firstHealth = -1;
 uintptr_t OFFSET_ENTITY_LIST  = 0x11D1B0; 
 uintptr_t OFFSET_LOCAL_PLAYER = 0xE49F0; 
 uintptr_t OFFSET_VIEW_MATRIX  = 0x11D260; 
-uintptr_t OFFSET_ENEMY_HEALTH = 0x59C; 
+uintptr_t OFFSET_ENEMY_HEALTH = 0x59C; // В меню можно будет поменять
 uintptr_t OFFSET_ENEMY_POS    = 0x4; 
 uintptr_t OFFSET_ENEMY_NAME   = 0x2A0;  
 
@@ -194,7 +194,6 @@ void DumpMemoryToFile(HANDLE hProcess, uintptr_t hwBase) {
     dumpFile << "=== CS 1.6 Memory Dump ===\n";
     dumpFile << "hwBase: 0x" << std::hex << hwBase << std::dec << "\n\n";
 
-    // ЧИТАЕМ УКАЗАТЕЛЬ НА МАССИВ
     uintptr_t entityListPtr = 0;
     ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListPtr, sizeof(entityListPtr), nullptr);
     
@@ -206,12 +205,16 @@ void DumpMemoryToFile(HANDLE hProcess, uintptr_t hwBase) {
         return;
     }
 
-    dumpFile << "--- Dumping Entities (1 to 512) ---\n";
-    for (int i = 1; i <= 512; i++) {
+    dumpFile << "--- Dumping First 10 Entities (Unfiltered) ---\n";
+    for (int i = 1; i <= 10; i++) {
         uintptr_t entityPtr = entityListPtr + (i * 0x1380);
         
-        int health = 0;
-        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_HEALTH), &health, sizeof(health), nullptr);
+        int hp_1BC = 0, hp_234 = 0, hp_238 = 0, hp_59C = 0;
+        
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x1BC), &hp_1BC, sizeof(hp_1BC), nullptr);
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x234), &hp_234, sizeof(hp_234), nullptr);
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x238), &hp_238, sizeof(hp_238), nullptr);
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x59C), &hp_59C, sizeof(hp_59C), nullptr);
         
         float pos[3] = { 0 };
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_POS), &pos, sizeof(pos), nullptr);
@@ -219,11 +222,29 @@ void DumpMemoryToFile(HANDLE hProcess, uintptr_t hwBase) {
         char name[32] = { 0 };
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_NAME), &name, 31, nullptr);
 
-        // Пишем только то, что похоже на игрока (здоровье от 1 до 100)
-        if (health > 0 && health <= 100) {
+        dumpFile << "[" << i << "] Addr: 0x" << std::hex << entityPtr << std::dec 
+                 << " | HP(1BC): " << hp_1BC 
+                 << " | HP(234): " << hp_234 
+                 << " | HP(238): " << hp_238 
+                 << " | HP(59C): " << hp_59C 
+                 << " | Name: " << name << "\n";
+    }
+    
+    dumpFile << "\n--- Dumping Entities with HP > 0 && <= 100 ---\n";
+    for (int i = 1; i <= 512; i++) {
+        uintptr_t entityPtr = entityListPtr + (i * 0x1380);
+        
+        int hp_1BC = 0, hp_234 = 0;
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x1BC), &hp_1BC, sizeof(hp_1BC), nullptr);
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + 0x234), &hp_234, sizeof(hp_234), nullptr);
+
+        if ((hp_1BC > 0 && hp_1BC <= 100) || (hp_234 > 0 && hp_234 <= 100)) {
+            char name[32] = { 0 };
+            ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_NAME), &name, 31, nullptr);
+            
             dumpFile << "[" << i << "] Addr: 0x" << std::hex << entityPtr << std::dec 
-                     << " | HP: " << health 
-                     << " | Pos: " << pos[0] << ", " << pos[1] << ", " << pos[2]
+                     << " | HP(1BC): " << hp_1BC 
+                     << " | HP(234): " << hp_234 
                      << " | Name: " << name << "\n";
         }
     }
