@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <fstream> // Встроенная библиотека С++
 
 #include <d3d9.h>
 
@@ -84,7 +85,7 @@ uintptr_t OFFSET_ENEMY_NAME   = 0x2A0;
 static char bufEntityList[32]  = "0x11D1B0";
 static char bufLocalPlayer[32] = "0xE49F0";
 static char bufViewMatrix[32]  = "0x11D260";
-static char bufEnemyHealth[32] = "0x59C"; // Обновлено
+static char bufEnemyHealth[32] = "0x59C"; 
 static char bufEnemyPos[32]    = "0x4";
 static char bufEnemyName[32]   = "0x2A0";
 
@@ -183,6 +184,40 @@ static bool CreateD3D9Device() {
     );
     if (FAILED(hr)) { g_pD3D->Release(); g_pD3D = nullptr; return false; }
     return true;
+}
+
+// ==================== Дамп памяти (F11) ====================
+void DumpMemoryToFile(HANDLE hProcess, uintptr_t hwBase) {
+    std::ofstream dumpFile("C:\\cs16_dump.txt");
+    if (!dumpFile.is_open()) return;
+
+    dumpFile << "=== CS 1.6 Memory Dump ===\n";
+    dumpFile << "hwBase: 0x" << std::hex << hwBase << std::dec << "\n\n";
+
+    uintptr_t entityListBase = hwBase + OFFSET_ENTITY_LIST;
+    dumpFile << "Direct EntityList Base: 0x" << std::hex << entityListBase << "\n\n";
+
+    dumpFile << "--- Dumping Entities (1 to 50) ---\n";
+    for (int i = 1; i <= 50; i++) {
+        uintptr_t entityPtr = entityListBase + (i * 0x1380);
+        
+        int health = 0;
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_HEALTH), &health, sizeof(health), nullptr);
+        
+        float pos[3] = { 0 };
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_POS), &pos, sizeof(pos), nullptr);
+        
+        char name[32] = { 0 };
+        ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_NAME), &name, 31, nullptr);
+
+        if (health > 0 || pos[0] != 0 || pos[1] != 0 || pos[2] != 0) {
+            dumpFile << "[" << i << "] Addr: 0x" << std::hex << entityPtr << std::dec 
+                     << " | HP: " << health 
+                     << " | Pos: " << pos[0] << ", " << pos[1] << ", " << pos[2]
+                     << " | Name: " << name << "\n";
+        }
+    }
+    dumpFile.close();
 }
 
 // ==================== Меню ImGui ====================
@@ -293,6 +328,10 @@ void RenderImGuiMenu() {
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "[FAIL] ViewMatrix (Zeros)");
 
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+            
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), T("Нажми [F11] в игре для дампа в C:\\cs16_dump.txt", "Press [F11] in-game to dump to C:\\cs16_dump.txt"));
+
+            ImGui::Spacing();
 
             ImGui::Text(T("Первый найденный игрок (для теста):", "First entity found (test):"));
             if (g_debug_firstEntity > 0) {
@@ -347,15 +386,18 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     if (!hProcess || !hwBase || OFFSET_ENTITY_LIST == 0 || OFFSET_VIEW_MATRIX == 0 || OFFSET_LOCAL_PLAYER == 0) 
         return players;
 
+    static bool f11Pressed = false;
+    if (GetAsyncKeyState(VK_F11) & 0x8000) {
+        if (!f11Pressed) { DumpMemoryToFile(hProcess, hwBase); f11Pressed = true; }
+    } else { f11Pressed = false; }
+
     float viewMatrix[4][4] = {};
     if (!ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr))
         return players;
         
     g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f && viewMatrix[1][1] != 0.0f);
 
-    uintptr_t entityListBase = 0;
-    if (!ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr))
-        return players;
+    uintptr_t entityListBase = hwBase + OFFSET_ENTITY_LIST;
     g_debug_entityList = entityListBase;
     if (!entityListBase) return players;
 
