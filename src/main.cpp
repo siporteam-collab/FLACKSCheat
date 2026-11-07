@@ -76,7 +76,7 @@ static int       g_debug_firstHealth = -1;
 uintptr_t OFFSET_ENTITY_LIST  = 0x11D1B0; 
 uintptr_t OFFSET_LOCAL_PLAYER = 0xE49F0; 
 uintptr_t OFFSET_VIEW_MATRIX  = 0x11D260; 
-uintptr_t OFFSET_ENEMY_HEALTH = 0x234; 
+uintptr_t OFFSET_ENEMY_HEALTH = 0x59C; 
 uintptr_t OFFSET_ENEMY_POS    = 0x4; 
 uintptr_t OFFSET_ENEMY_NAME   = 0x2A0;  
 
@@ -84,7 +84,7 @@ uintptr_t OFFSET_ENEMY_NAME   = 0x2A0;
 static char bufEntityList[32]  = "0x11D1B0";
 static char bufLocalPlayer[32] = "0xE49F0";
 static char bufViewMatrix[32]  = "0x11D260";
-static char bufEnemyHealth[32] = "0x234";
+static char bufEnemyHealth[32] = "0x59C"; // Обновлено
 static char bufEnemyPos[32]    = "0x4";
 static char bufEnemyName[32]   = "0x2A0";
 
@@ -370,8 +370,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     bool hasTarget = false;
     bool foundFirstDebug = false;
 
-    // ИСПРАВЛЕНИЕ: Идем напрямую по структурам игроков (шаг 0x1380)
-    for (int i = 1; i <= 32; i++) {
+    for (int i = 1; i <= 512; i++) {
         uintptr_t entityPtr = entityListBase + (i * 0x1380);
         
         if (entityPtr == localPlayerPtr) continue;
@@ -379,7 +378,7 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
         PlayerData p;
         ReadProcessMemory(hProcess, (LPCVOID)(entityPtr + OFFSET_ENEMY_HEALTH), &p.health, sizeof(p.health), nullptr);
 
-        if (!foundFirstDebug) {
+        if (!foundFirstDebug && p.health > 0 && p.health <= 100) {
             g_debug_firstEntity = entityPtr;
             g_debug_firstHealth = p.health;
             foundFirstDebug = true;
