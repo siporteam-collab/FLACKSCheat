@@ -370,11 +370,10 @@ std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBas
     bool hasTarget = false;
     bool foundFirstDebug = false;
 
+    // ИСПРАВЛЕНИЕ: Идем напрямую по структурам игроков (шаг 0x1380)
     for (int i = 1; i <= 32; i++) {
-        uintptr_t entityPtr = 0;
-        ReadProcessMemory(hProcess, (LPCVOID)(entityListBase + (i * 4)), &entityPtr, sizeof(entityPtr), nullptr);
+        uintptr_t entityPtr = entityListBase + (i * 0x1380);
         
-        if (!entityPtr) continue;
         if (entityPtr == localPlayerPtr) continue;
 
         PlayerData p;
@@ -515,9 +514,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         g_hProcess = OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, pid);
         if (g_hProcess) {
             hwBase = GetModuleBaseAddress(pid, L"hw.dll");
-            char dbgMsg[128];
-            sprintf_s(dbgMsg, "PID: %d | hwBase: 0x%p", pid, (void*)hwBase);
-            MessageBoxA(nullptr, dbgMsg, "Debug Info", MB_OK | MB_ICONINFORMATION);
         }
     }
 
