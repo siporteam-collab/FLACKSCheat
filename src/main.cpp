@@ -72,21 +72,21 @@ static bool      g_debug_viewMatrixValid = false;
 static uintptr_t g_debug_firstEntity = 0;
 static int       g_debug_firstHealth = -1;
 
-// ==================== ПЕРЕМЕННЫЕ ОФФСЕТЫ ====================
-uintptr_t OFFSET_ENTITY_LIST  = 0x0; 
-uintptr_t OFFSET_LOCAL_PLAYER = 0x0; 
-uintptr_t OFFSET_VIEW_MATRIX  = 0x0; 
-uintptr_t OFFSET_ENEMY_HEALTH = 0x59C; 
-uintptr_t OFFSET_ENEMY_POS    = 0x304; 
-uintptr_t OFFSET_ENEMY_NAME   = 0x10;  
+// ==================== ПЕРЕМЕННЫЕ ОФФСЕТЫ (CS 1.6 Build 4554) ====================
+uintptr_t OFFSET_ENTITY_LIST  = 0x11D1B0; 
+uintptr_t OFFSET_LOCAL_PLAYER = 0xE49F0; 
+uintptr_t OFFSET_VIEW_MATRIX  = 0x11D260; 
+uintptr_t OFFSET_ENEMY_HEALTH = 0x234; 
+uintptr_t OFFSET_ENEMY_POS    = 0x4; 
+uintptr_t OFFSET_ENEMY_NAME   = 0x2A0;  
 
 // Буферы для ввода текста в ImGui
-static char bufEntityList[32] = "0x0";
-static char bufLocalPlayer[32] = "0x0";
-static char bufViewMatrix[32] = "0x0";
-static char bufEnemyHealth[32] = "0x59C";
-static char bufEnemyPos[32] = "0x304";
-static char bufEnemyName[32] = "0x10";
+static char bufEntityList[32]  = "0x11D1B0";
+static char bufLocalPlayer[32] = "0xE49F0";
+static char bufViewMatrix[32]  = "0x11D260";
+static char bufEnemyHealth[32] = "0x234";
+static char bufEnemyPos[32]    = "0x4";
+static char bufEnemyName[32]   = "0x2A0";
 
 // Функция применения оффсетов из текстовых полей
 void ApplyOffsetsFromUI() {
@@ -253,7 +253,7 @@ void RenderImGuiMenu() {
         // ================= OFFSETS =================
         if (ImGui::BeginTabItem(T("  OFFSETS  ", "  OFFSETS  "))) {
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), T("Введите адреса из Cheat Engine (в Hex):", "Enter Cheat Engine addresses (Hex):"));
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), T("RVA от hw.dll (в Hex):", "RVA from hw.dll (Hex):"));
             ImGui::Separator();
             ImGui::Spacing();
 
@@ -344,14 +344,18 @@ bool WorldToScreen(float* world, float* screen, float matrix[4][4], int sw, int 
 // ==================== Чтение памяти и Aimbot ====================
 std::vector<PlayerData> GetPlayersAndProcessAim(HANDLE hProcess, uintptr_t hwBase, int sw, int sh) {
     std::vector<PlayerData> players;
-    if (!hProcess || !hwBase || OFFSET_ENTITY_LIST == 0 || OFFSET_VIEW_MATRIX == 0) return players;
+    if (!hProcess || !hwBase || OFFSET_ENTITY_LIST == 0 || OFFSET_VIEW_MATRIX == 0 || OFFSET_LOCAL_PLAYER == 0) 
+        return players;
 
-    float viewMatrix[4][4];
-    ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr);
+    float viewMatrix[4][4] = {};
+    if (!ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_VIEW_MATRIX), &viewMatrix, sizeof(viewMatrix), nullptr))
+        return players;
+        
     g_debug_viewMatrixValid = (viewMatrix[0][0] != 0.0f && viewMatrix[1][1] != 0.0f);
 
     uintptr_t entityListBase = 0;
-    ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr);
+    if (!ReadProcessMemory(hProcess, (LPCVOID)(hwBase + OFFSET_ENTITY_LIST), &entityListBase, sizeof(entityListBase), nullptr))
+        return players;
     g_debug_entityList = entityListBase;
     if (!entityListBase) return players;
 
@@ -473,7 +477,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     int width  = rect.right  - rect.left;
     int height = rect.bottom - rect.top;
 
-    // Убрали WS_EX_NOACTIVATE, чтобы окно могло получать фокус
     g_hwndOverlay = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, 
         wc.lpszClassName, L"Overlay",
@@ -491,7 +494,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     ShowWindow(g_hwndOverlay, SW_SHOW);
     UpdateWindow(g_hwndOverlay);
 
-    // Отдаем фокус игре при старте
     SetForegroundWindow(g_hwndGame);
 
     if (!CreateD3D9Device()) return 1;
@@ -511,7 +513,12 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     uintptr_t hwBase = 0;
     if (pid) {
         g_hProcess = OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, pid);
-        if (g_hProcess) hwBase = GetModuleBaseAddress(pid, L"hw.dll");
+        if (g_hProcess) {
+            hwBase = GetModuleBaseAddress(pid, L"hw.dll");
+            char dbgMsg[128];
+            sprintf_s(dbgMsg, "PID: %d | hwBase: 0x%p", pid, (void*)hwBase);
+            MessageBoxA(nullptr, dbgMsg, "Debug Info", MB_OK | MB_ICONINFORMATION);
+        }
     }
 
     bool done = false;
@@ -526,12 +533,10 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         }
         if (done) break;
 
-        // ===== ИЗМЕНЕНО НА F10 =====
         static bool f10Pressed = false;
         if (GetAsyncKeyState(VK_F10) & 0x8000) {
             if (!f10Pressed) { g_showMenu = !g_showMenu; f10Pressed = true; }
         } else { f10Pressed = false; }
-        // ==========================
 
         if (g_hwndGame && !IsWindow(g_hwndGame)) break;
 
@@ -589,7 +594,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
                 pt.y >= g_menuPos.y && pt.y <= g_menuPos.y + g_menuSize.y) overMenu = true;
         }
 
-        // Логика фокуса
         if (g_showMenu) {
             if (overMenu) {
                 if (!lastFocusState) {
